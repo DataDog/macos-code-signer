@@ -112,18 +112,26 @@ mod macos {
     use super::common::{run, run_ok};
     use super::*;
     use apple_codesign::{SettingsScope, SigningSettings, UnifiedSigner};
+    use apple_xar::reader::XarReader;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::process::Command;
     use x509_certificate::{CapturedX509Certificate, InMemorySigningKeyPair};
 
-    /// `codesign --verify --deep --strict`, panicking on failure.
+    /// Signing authority `codesign` reports for the E2E fixture certificate.
+    const AUTHORITY: &str = "Authority=Developer ID Application: Example (E2ETEST123)\n";
+
+    /// `codesign --verify --deep --strict`, panicking on failure. Also checks
+    /// that the signature is made with the fixture certificate: `--verify`
+    /// alone accepts an ad-hoc signature.
     fn codesign_verify(path: &Path) {
         run_ok(
             Command::new("codesign")
                 .args(["--verify", "--deep", "--strict", "--verbose=2"])
                 .arg(path),
         );
+        let details = codesign_details(path);
+        assert!(details.contains(AUTHORITY), "{details}");
     }
 
     /// `codesign -dvvv` output (it prints to stderr).
@@ -133,14 +141,32 @@ mod macos {
         stderr
     }
 
-    fn pkgutil_check_signature(path: &Path) {
+    /// Checks a `.pkg` signature cryptographically. `pkgutil --check-signature`
+    /// reports a self-signed certificate as untrusted whether or not the
+    /// signature is valid, so it is only used to check that macOS sees one.
+    fn pkg_verify(path: &Path) {
         let output = Command::new("pkgutil")
             .arg("--check-signature")
             .arg(path)
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("Certificate Chain:"), "{stdout}");
+        assert!(
+            stdout.contains("Status: signed by untrusted certificate"),
+            "{stdout}"
+        );
+
+        let mut xar = XarReader::new(fs::File::open(path).unwrap()).unwrap();
+        assert!(xar.verify_table_of_contents_checksum().unwrap());
+        assert!(xar.verify_rsa_checksum_signature().unwrap());
+        assert!(xar.verify_cms_signature().unwrap());
+
+        let (_, certificates) = xar.rsa_signature().unwrap().unwrap();
+        let expected = CapturedX509Certificate::from_pem(CERT_PEM.as_bytes()).unwrap();
+        assert_eq!(
+            certificates[0].constructed_data(),
+            expected.constructed_data()
+        );
     }
 
     /// Path for the signed copy of `input`, with the same file name.
@@ -171,14 +197,37 @@ mod macos {
         verify(&input);
     }
 
+    // The default Mach-O and bundle inputs are ad-hoc signed on arm64, like
+    // any freshly built binary, so these also check that the ad-hoc
+    // signature is replaced.
     #[tokio::test]
     async fn signs_a_macho() {
         assert_signs(artifacts::macho, APPLICATION_CERT_ID, codesign_verify).await;
     }
 
     #[tokio::test]
+    async fn signs_an_unsigned_macho() {
+        assert_signs(
+            artifacts::unsigned_macho,
+            APPLICATION_CERT_ID,
+            codesign_verify,
+        )
+        .await;
+    }
+
+    #[tokio::test]
     async fn signs_an_app_bundle() {
         assert_signs(artifacts::app_bundle, APPLICATION_CERT_ID, codesign_verify).await;
+    }
+
+    #[tokio::test]
+    async fn signs_an_unsigned_app_bundle() {
+        assert_signs(
+            artifacts::unsigned_app_bundle,
+            APPLICATION_CERT_ID,
+            codesign_verify,
+        )
+        .await;
     }
 
     #[tokio::test]
@@ -188,7 +237,49 @@ mod macos {
 
     #[tokio::test]
     async fn signs_a_pkg() {
-        assert_signs(artifacts::pkg, INSTALLER_CERT_ID, pkgutil_check_signature).await;
+        assert_signs(artifacts::pkg, INSTALLER_CERT_ID, pkg_verify).await;
+    }
+
+    /// `codesign -dv` output for `path`, signed or not.
+    fn codesign_describe(path: &Path) -> String {
+        run(Command::new("codesign").arg("-dv").arg(path)).1
+    }
+
+    // The linker only ad-hoc signs on arm64.
+    #[cfg(target_arch = "aarch64")]
+    #[test]
+    fn generates_ad_hoc_signed_inputs() {
+        let dir = TempDir::new().unwrap();
+
+        for input in [
+            artifacts::macho(dir.path()),
+            artifacts::app_bundle(dir.path()),
+        ] {
+            let stderr = codesign_describe(&input);
+            assert!(stderr.contains("Signature=adhoc"), "{stderr}");
+        }
+    }
+
+    #[test]
+    fn generates_unsigned_inputs() {
+        for build in [
+            artifacts::unsigned_macho,
+            artifacts::unsigned_app_bundle,
+            artifacts::dmg,
+        ] {
+            let dir = TempDir::new().unwrap();
+            let stderr = codesign_describe(&build(dir.path()));
+            assert!(
+                stderr.contains("code object is not signed at all"),
+                "{stderr}"
+            );
+        }
+
+        let dir = TempDir::new().unwrap();
+        let pkg = artifacts::pkg(dir.path());
+        let mut xar = XarReader::new(fs::File::open(pkg).unwrap()).unwrap();
+        assert!(xar.rsa_signature().unwrap().is_none());
+        assert!(xar.cms_signature().unwrap().is_none());
     }
 
     /// The CodeDirectory lines of `codesign -dvvv`, which identify what was

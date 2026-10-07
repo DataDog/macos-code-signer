@@ -1,5 +1,5 @@
-//! Builds unsigned test artifacts with `scripts/gen-test-artifacts/`, so the
-//! scripts used for manual testing are exercised too.
+//! Builds test artifacts with `scripts/gen-test-artifacts/`, so the scripts
+//! used for manual testing are exercised too.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -29,17 +29,33 @@ fn generate(kind: &str, output: PathBuf, args: &[&str]) -> PathBuf {
     output
 }
 
-/// Unsigned Mach-O executable at `dir/hello`.
+/// Mach-O executable at `dir/hello`, as the toolchain builds it: ad-hoc
+/// signed by the linker on arm64.
 pub fn macho(dir: &Path) -> PathBuf {
     generate("macho", dir.join("hello"), &[])
 }
 
-/// Unsigned `.app` bundle at `dir/TestApp.app`.
+/// Mach-O executable at `dir/hello`, with no signature at all.
+pub fn unsigned_macho(dir: &Path) -> PathBuf {
+    generate("macho", dir.join("hello"), &["--unsigned"])
+}
+
+/// `.app` bundle at `dir/TestApp.app`, whose executable is ad-hoc signed by
+/// the linker on arm64.
 pub fn app_bundle(dir: &Path) -> PathBuf {
     generate(
         "bundle",
         dir.join("TestApp.app"),
         &["--identifier", BUNDLE_IDENTIFIER],
+    )
+}
+
+/// `.app` bundle at `dir/TestApp.app`, with no signature at all.
+pub fn unsigned_app_bundle(dir: &Path) -> PathBuf {
+    generate(
+        "bundle",
+        dir.join("TestApp.app"),
+        &["--identifier", BUNDLE_IDENTIFIER, "--unsigned"],
     )
 }
 

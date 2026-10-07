@@ -17,9 +17,9 @@ See `README.md` for usage and the service API.
 - `src/client.rs`: `SigningServiceClient`, the HTTP client for the signing service.
 - `src/signer.rs`: `RemoteKeyInfoSigner`, the remote-backed `KeyInfoSigner`.
 - `src/settings.rs`: `SigningSettings` construction (chain resolution, flags, entitlements, timestamp).
-- `scripts/gen-test-artifacts/`: shell scripts that build unsigned Mach-O, `.app`, `.dmg` and `.pkg` artifacts. The E2E tests build their inputs with them. Also used for manual testing against a deployed service.
+- `scripts/gen-test-artifacts/`: shell scripts that build Mach-O, `.app`, `.dmg` and `.pkg` artifacts. The Mach-O and `.app` executable are ad-hoc signed by the linker on arm64 unless `--unsigned` is passed. The others are unsigned. The E2E tests build their inputs with them. Also used for manual testing against a deployed service.
 - `tests/e2e.rs`: end-to-end tests that run the built binary against a mock service.
-- `tests/common/`: E2E helpers. `mock_service.rs` is a `wiremock` mock of the service API that signs with the E2E fixture key. `artifacts.rs` builds unsigned inputs with `scripts/gen-test-artifacts/` (macOS only).
+- `tests/common/`: E2E helpers. `mock_service.rs` is a `wiremock` mock of the service API that signs with the E2E fixture key. `artifacts.rs` builds inputs with `scripts/gen-test-artifacts/` (macOS only).
 - `tests/fixtures/`: throwaway self-signed key pairs. `test-*.pem` for unit tests, `e2e-developer-id-*.pem` (Developer ID-style extensions) for E2E tests. See `tests/fixtures/README.md`.
 
 ## Dependencies
@@ -30,6 +30,6 @@ See `README.md` for usage and the service API.
 
 `cargo test` runs the unit tests for all four modules and the E2E tests. `client.rs` and `signer.rs` tests mock the service with `wiremock`. `signer.rs` also asserts byte-identical output between remote signing and local signing with the same key, using `tests/fixtures/`.
 
-`cargo test --test e2e` runs only the E2E tests. Error cases (missing token, non-HTTPS URL, cert type mismatch, `401`, unknown flag) run on any OS. Signing tests need macOS with the Xcode command line tools (`cc`, `codesign`, `hdiutil`, `pkgbuild`, `pkgutil`) and are compiled out elsewhere. They sign each artifact type, check it with `codesign --verify` or `pkgutil --check-signature`, and compare the CodeDirectory against local signing with the same key.
+`cargo test --test e2e` runs only the E2E tests. Error cases (missing token, non-HTTPS URL, cert type mismatch, `401`, unknown flag) run on any OS. Signing tests need macOS with the Xcode command line tools (`cc`, `codesign`, `hdiutil`, `pkgbuild`, `pkgutil`) and are compiled out elsewhere. They check the signature state of the generated inputs, sign each artifact type (Mach-O and `.app` both ad-hoc signed and unsigned), verify the signature and its certificate (`codesign`, or `apple-xar` for `.pkg`, since `pkgutil` doesn't tell an invalid signature from an untrusted certificate), and compare the CodeDirectory against local signing with the same key.
 
 Before committing: `cargo fmt --check` and `cargo clippy --all-targets -- -Dwarnings`.
