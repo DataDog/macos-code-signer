@@ -33,3 +33,7 @@ See `README.md` for usage and the service API.
 `cargo test --test e2e` runs only the E2E tests. Error cases (missing token, non-HTTPS URL, cert type mismatch, `401`, unknown flag) run on any OS. Signing tests need macOS with the Xcode command line tools (`cc`, `codesign`, `hdiutil`, `pkgbuild`, `pkgutil`) and are compiled out elsewhere. They check the signature state of the generated inputs, sign each artifact type (Mach-O and `.app` both ad-hoc signed and unsigned), verify the signature and its certificate (`codesign`, or `apple-xar` for `.pkg`, since `pkgutil` doesn't tell an invalid signature from an untrusted certificate), and compare the CodeDirectory against local signing with the same key.
 
 Before committing: `cargo fmt --check` and `cargo clippy --all-targets -- -Dwarnings`.
+
+## CI
+
+`.gitlab-ci.yml` runs `fmt`, `shellcheck` (on `scripts/gen-test-artifacts/`), `clippy` and `test-linux` on Linux. `test-macos` (full E2E) and `build-macos` (release binaries for both targets, plus a universal one made with `lipo`) run on a macOS runner. macOS runners are scarcer than Linux ones, so these jobs run less often. They always run on the default branch and on tags. On other branches, they run only when the code, tests, scripts, toolchain or CI config differ from `main`. All jobs install the toolchain pinned in `rust-toolchain.toml`, whatever the runner image ships.
