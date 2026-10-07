@@ -1,0 +1,122 @@
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  # Only provides rustup: jobs install the toolchain from rust-toolchain.toml.
+  RUST_IMAGE: registry.ddbuild.io/images/mirror/rust:1.96
+  MACOS_IMAGE: 486234852809.dkr.ecr.us-east-1.amazonaws.com/ci/ci-platform-machine-images/tart-vm:shared-sonoma-latest
+  MACOS_RUNNER_TAG: macos:tart
+  LINUX_RUNNER_TAG: arch:amd64
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+
+.cargo-cache:
+  cache:
+    key:
+      prefix: $CI_JOB_NAME
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/registry/
+      - target/
+
+.linux:
+  extends: .cargo-cache
+  image: $RUST_IMAGE
+  tags: ["$LINUX_RUNNER_TAG"]
+  before_script:
+    # Installs the toolchain, components and targets from rust-toolchain.toml.
+    - rustup toolchain install
+    - rustup component add rustfmt clippy
+
+.macos:
+  extends: .cargo-cache
+  image: $MACOS_IMAGE
+  tags: ["$MACOS_RUNNER_TAG"]
+  before_script:
+    # The image ships rustup in ~/.cargo, but only adds it to PATH in
+    # ~/.zshrc, and with an older default toolchain. The fallback below
+    # installs it in $CARGO_HOME.
+    - export PATH="$CARGO_HOME/bin:$HOME/.cargo/bin:$PATH"
+    - |
+      if ! command -v rustup >/dev/null; then
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain none
+      fi
+    # rustup before 1.28 has no argument-less `toolchain install`, but
+    # `show` installs the toolchain from rust-toolchain.toml.
+    - rustup toolchain install || rustup show
+  # macOS runners are scarcer than Linux ones, so these jobs run less often:
+  # always on the default branch and on tags, elsewhere only when files that
+  # affect them differ from main.
+  rules:
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - changes:
+        paths:
+          - .gitlab-ci.yml
+          - Cargo.toml
+          - Cargo.lock
+          - rust-toolchain.toml
+          - scripts/gen-test-artifacts/**/*
+          - src/**/*
+          - tests/**/*
+        compare_to: refs/heads/main
+
+fmt:
+  extends: .linux
+  stage: lint
+  cache: []
+  script:
+    - cargo fmt --check
+
+shellcheck:
+  stage: lint
+  image: $RUST_IMAGE
+  tags: ["$LINUX_RUNNER_TAG"]
+  script:
+    - apt-get update -qq
+    - apt-get install -qq -y --no-install-recommends shellcheck
+    - shellcheck --version
+    - shellcheck scripts/gen-test-artifacts/*.sh
+
+clippy:
+  extends: .linux
+  stage: lint
+  script:
+    - cargo clippy --all-targets --locked
+
+# On Linux, only the E2E error cases run: signing tests need macOS.
+test-linux:
+  extends: .linux
+  stage: test
+  needs: []
+  script:
+    - cargo test --locked
+
+test-macos:
+  extends: .macos
+  stage: test
+  needs: []
+  script:
+    - cargo test --locked
+
+build-macos:
+  extends: .macos
+  stage: build
+  needs: []
+  script:
+    - cargo build --release --locked --target aarch64-apple-darwin
+    - cargo build --release --locked --target x86_64-apple-darwin
+    - mkdir -p target/universal-apple-darwin/release
+    - >-
+      lipo -create
+      -output target/universal-apple-darwin/release/macos-code-signer
+      target/aarch64-apple-darwin/release/macos-code-signer
+      target/x86_64-apple-darwin/release/macos-code-signer
+    - lipo -info target/universal-apple-darwin/release/macos-code-signer
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - target/*-apple-darwin/release/macos-code-signer
