@@ -78,4 +78,19 @@ cargo clippy --all-targets -- -Dwarnings
 cargo fmt --check
 ```
 
-Unit tests mock the signing service with [`wiremock`](https://crates.io/crates/wiremock). `tests/fixtures/` holds a throwaway self-signed key pair used by those tests.
+Unit tests mock the signing service with [`wiremock`](https://crates.io/crates/wiremock).
+
+End-to-end tests (`cargo test --test e2e`) run the built binary against a mock of the signing service that signs with a local test key. On macOS they build a Mach-O, an `.app`, a `.dmg` and a `.pkg` with the scripts in `scripts/gen-test-artifacts/`, sign them, then verify each signature with `codesign`, or with `apple-xar` for the `.pkg`. The Mach-O and the `.app` executable are ad-hoc signed by the linker on arm64, like any freshly built binary, so the tests also check that the CLI replaces an ad-hoc signature. They sign fully unsigned variants too. Elsewhere, only the error cases run.
+
+To test against a deployed signing service, build test artifacts with the same scripts (macOS only), then sign them with the CLI:
+
+```
+scripts/gen-test-artifacts/generate-test-macho.sh --output hello
+scripts/gen-test-artifacts/generate-test-bundle.sh --output TestApp.app
+scripts/gen-test-artifacts/generate-test-dmg.sh --output test.dmg
+scripts/gen-test-artifacts/generate-test-pkg.sh --output test.pkg
+```
+
+Sign the `.pkg` with an `installer` certificate and the others with an `application` certificate. Pass `--unsigned` to the Mach-O and `.app` scripts to skip the ad-hoc signature. Run a script with `--help` for its options.
+
+`tests/fixtures/` holds the throwaway self-signed key pairs used by the tests. See [`tests/fixtures/README.md`](tests/fixtures/README.md).
