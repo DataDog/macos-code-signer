@@ -1,2 +1,81 @@
 # macos-code-signer
-CLI for macOS workloads to facilitate the signing of macOS artifacts for notarization purposes. - Repository managed by GRM
+
+CLI that signs macOS artifacts with a Developer ID certificate whose private key stays in a remote signing service.
+
+It signs Mach-O binaries, `.app` bundles, `.pkg` installers and `.dmg` disk images. The signature is computed locally with the [`apple-codesign`](https://github.com/indygreg/apple-platform-rs) crate. Only a 32-byte SHA-256 digest is sent to `macos-signing-service`, and only the signature comes back. The artifact and the private key never cross the network.
+
+```
+macos-code-signer sign <input>
+  │ apple-codesign computes the CodeDirectory/CMS digest locally
+  ▼
+RemoteKeyInfoSigner
+  │ SHA-256 digest --HTTPS + OIDC bearer token--> macos-signing-service
+  ▼
+signature comes back, apple-codesign embeds it in <input> or <output>
+```
+
+## Install
+
+Build from source with a Rust toolchain (the version is pinned in `rust-toolchain.toml`):
+
+```
+cargo install --locked --git https://github.com/DataDog/macos-code-signer
+```
+
+## Usage
+
+```
+macos-code-signer --service-url <url> --cert-id <cert_id> sign [options] <input> [output]
+```
+
+Global flags, required on every invocation:
+- `--service-url`: base URL of `macos-signing-service`. Can also be set with `MACOS_SIGNING_SERVICE_URL`. Must be HTTPS, except for loopback addresses (local testing).
+- `--cert-id`: ID of the certificate to sign with, as registered in `macos-signing-service`.
+
+The OIDC bearer token is read only from the `MACOS_SIGNING_SERVICE_TOKEN` environment variable. It is never a flag, so it can't leak through shell history or `ps`.
+
+### `sign`
+
+Signs `input` and writes the result to `output`, or signs `input` in place if `output` is omitted. The artifact type is inferred from `input`, the same way `rcodesign sign` does it.
+
+Options:
+- `--identifier`: CodeDirectory identifier for a standalone Mach-O or a `.dmg`. Bundles take their identifier from `CFBundleIdentifier` in `Info.plist`. `.pkg` files have no identifier.
+- `--code-signature-flags <FLAG>`: code signature flag to set, e.g. `runtime` for the hardened runtime. Can be repeated. Valid values: `host`, `hard`, `kill`, `expires`, `library`, `runtime`, `linker-signed`.
+- `--entitlements-xml-file <PATH>`: XML plist file with entitlements to embed in the signature.
+- `--timestamp-url <URL>`: RFC 3161 time-stamp server, or `none` to sign without a secure timestamp. Defaults to `http://timestamp.apple.com/ts01`.
+
+The certificate type must match the artifact. The CLI checks this before signing:
+- `.pkg` installers need an `installer` certificate.
+- Mach-O binaries, `.app` bundles and `.dmg` disk images need an `application` certificate.
+
+Example:
+
+```
+export MACOS_SIGNING_SERVICE_TOKEN="$(<fetch an OIDC token for the macos-signing-service audience>)"
+macos-code-signer \
+  --service-url https://macos-signing-service.example \
+  --cert-id my-application-cert \
+  sign --code-signature-flags runtime --identifier com.example.tool ./tool
+```
+
+Signing does not notarize. Submit the signed artifact to Apple's notary service separately, e.g. with `rcodesign notary-submit` or `xcrun notarytool`.
+
+## Signing service API
+
+The CLI uses two endpoints. Both take an `Authorization: Bearer <token>` header and return JSON:API envelopes.
+
+- `GET /signer/macos/certificates/{cert_id}` returns the leaf certificate (`certificate_pem`), its type (`cert_type`) and the key version it matches (`key_version`).
+- `POST /signer/macos/certificates/{cert_id}/sign` takes `{"digest": "<base64 SHA-256>", "key_version": N}` and returns a base64 RSASSA-PKCS1-v1_5 signature. It returns `409 Conflict` if the certificate was rotated after it was fetched.
+
+Only RSA certificates are supported.
+
+## Development
+
+```
+cargo build
+cargo test
+cargo clippy --all-targets -- -Dwarnings
+cargo fmt --check
+```
+
+Unit tests mock the signing service with [`wiremock`](https://crates.io/crates/wiremock). `tests/fixtures/` holds a throwaway self-signed key pair used by those tests.
