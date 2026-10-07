@@ -30,6 +30,8 @@ x509-certificate = "0.25.0"
 zeroize = "1.8.1"
 
 [dev-dependencies]
+rsa = { version = "0.9.10", features = ["sha2"] }
+tempfile = "3.27.0"
 tokio = { version = "1.53.0", features = ["full", "test-util"] }
 wiremock = "0.6.5"
 
