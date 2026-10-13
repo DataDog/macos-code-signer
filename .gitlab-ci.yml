@@ -2,16 +2,19 @@ stages:
   - lint
   - test
   - build
+  - release
 
 variables:
   # Only provides rustup: jobs install the toolchain from rust-toolchain.toml.
   RUST_IMAGE: registry.ddbuild.io/images/mirror/rust:1.96
   MACOS_IMAGE: 486234852809.dkr.ecr.us-east-1.amazonaws.com/ci/ci-platform-machine-images/tart-vm:shared-sonoma-latest
+  AWS_CLI_IMAGE: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.17.32@sha256:10ca062d9b8e8512c245f03fd0710ba7c197891658c8dcea200c1d8d0e28961c
   MACOS_RUNNER_TAG: macos:tart
   LINUX_RUNNER_TAG: arch:amd64
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
+  RELEASE_S3_BUCKET: binaries-ddbuild-io-prod
 
 .cargo-cache:
   cache:
@@ -82,7 +85,8 @@ shellcheck:
     - find scripts -type f -name '*.sh' -exec shellcheck {} +
 
 # Only runs on release tags: enforces that the tag matches Cargo.toml's
-# version before build-macos and package run with it.
+# version before build-macos and package run with it (and, via stage
+# order, before release-s3).
 check-release-tag:
   stage: lint
   image: $RUST_IMAGE
@@ -170,3 +174,49 @@ package:
     expire_in: 1 week
     paths:
       - dist/
+
+# Uploads the tag's release archives to an S3 bucket. GitHub Releases
+# (release.yml) is the public distribution channel; this is the other one.
+# Authenticates as the trusted-jobs CI Identity (trusted refs: main and v*
+# tags). Its IAM policy only allows PutObject/GetObject under
+# macos-code-signer/* and ListBucket with that prefix: no --delete, no
+# --acl, nothing that needs DeleteObject or PutObjectAcl.
+release-s3:
+  stage: release
+  # Stops concurrent tag pipelines from mixing files under latest/.
+  resource_group: macos-code-signer-release
+  # amazon/aws-cli sets ENTRYPOINT ["aws"], so GitLab can't run the script
+  # without clearing it. The image is Amazon Linux based and has /bin/sh.
+  image:
+    name: $AWS_CLI_IMAGE
+    entrypoint: [""]
+  tags: ["$LINUX_RUNNER_TAG"]
+  # dependencies (not needs) so this waits for every earlier stage (lint,
+  # including check-release-tag, then test and build), not just package.
+  # It still only downloads package's artifacts.
+  dependencies:
+    - package
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  id_tokens:
+    CI_IDENTITIES_GITLAB_ID_TOKEN:
+      aud: ci-identities
+  variables:
+    # Pinned ci-identities job client version and checksum. linux-amd64
+    # matches LINUX_RUNNER_TAG.
+    CI_IDENTITIES_CLIENT_VERSION: v0.9.1
+    CI_IDENTITIES_CLIENT_SHA256: ba1e7a2c8d215ca607152987f3f92e361c1ebf63b508c02f71fc9639eff52625
+  script:
+    - export AWS_SHARED_CREDENTIALS_FILE="$CI_PROJECT_DIR/.aws-credentials"
+    - >-
+      curl --proto '=https' --tlsv1.2 -sSfL
+      -o ci-identities-ci-job-client
+      "https://binaries.ddbuild.io/ci-identities/ci-identities-ci-job-client/versions/${CI_IDENTITIES_CLIENT_VERSION}/ci-identities-ci-job-client-linux-amd64"
+    - echo "${CI_IDENTITIES_CLIENT_SHA256}  ci-identities-ci-job-client" | sha256sum -c -
+    - chmod +x ci-identities-ci-job-client
+    - ./ci-identities-ci-job-client assume-role --account-id 486234852809
+    - version="${CI_COMMIT_TAG#v}"
+    - aws s3 cp dist/ "s3://${RELEASE_S3_BUCKET}/macos-code-signer/${version}/" --recursive
+    - mkdir -p latest
+    - scripts/package.sh --latest dist latest
+    - aws s3 cp latest/ "s3://${RELEASE_S3_BUCKET}/macos-code-signer/latest/" --recursive
