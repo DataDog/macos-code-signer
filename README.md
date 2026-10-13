@@ -16,7 +16,30 @@ signature comes back, apple-codesign embeds it in <input> or <output>
 
 ## Install
 
-Build from source with a Rust toolchain (the version is pinned in `rust-toolchain.toml`):
+Download a prebuilt binary from the [releases page](https://github.com/DataDog/macos-code-signer/releases). Each release has `darwin_arm64`, `darwin_amd64` and `darwin_universal` tarballs, plus a `SHA256SUMS` file to check them against:
+
+```
+curl -LO https://github.com/DataDog/macos-code-signer/releases/download/vX.Y.Z/macos-code-signer_X.Y.Z_darwin_universal.tar.gz
+curl -LO https://github.com/DataDog/macos-code-signer/releases/download/vX.Y.Z/SHA256SUMS
+grep darwin_universal SHA256SUMS | shasum -a 256 -c -
+tar xzf macos-code-signer_X.Y.Z_darwin_universal.tar.gz
+```
+
+In a GitHub Actions workflow, use the action instead. It downloads the right binary for the runner's architecture, checks it, and adds it to `PATH`:
+
+```yaml
+- uses: DataDog/macos-code-signer@v0.1.0
+```
+
+The action's `version` input defaults to its own ref, so pinning the action to a release tag is enough. Set `version` explicitly when it should differ from the ref, for example when the action is pinned by commit SHA:
+
+```yaml
+- uses: DataDog/macos-code-signer@a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
+  with:
+    version: v0.1.0
+```
+
+Alternatively, build from source with a Rust toolchain (the version is pinned in `rust-toolchain.toml`):
 
 ```
 cargo install --locked --git https://github.com/DataDog/macos-code-signer

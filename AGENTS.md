@@ -21,6 +21,7 @@ See `README.md` for usage and the service API.
 - `scripts/package.sh`: builds the release tarballs (binary + `README.md`) and `SHA256SUMS` for a given version (build mode), or copies already-built tarballs to fixed, unversioned names with a matching `SHA256SUMS` (`--latest` mode). Needs `tar` and a sha256 tool (`sha256sum` or `shasum`); neither mode needs macOS, even though the binaries it packages are macOS-only. Used by `.github/workflows/release.yml`'s `package` job.
 - `scripts/check-release-tag.sh`: fails unless a `vX.Y.Z` tag matches `Cargo.toml`'s version. Used by `.github/workflows/release.yml`'s `check-tag` job before a release build runs.
 - `scripts/cargo-version.sh`: prints `Cargo.toml`'s package version. Shared by `check-release-tag.sh` and `.github/workflows/release.yml`'s version resolution, so the version is only parsed in one place.
+- `action.yml`: a composite GitHub Action that downloads the released binary for the runner's architecture, checks it against `SHA256SUMS`, and adds it to `PATH`.
 - `tests/e2e.rs`: end-to-end tests that run the built binary against a mock service.
 - `tests/common/`: E2E helpers. `mock_service.rs` is a `wiremock` mock of the service API that signs with the E2E fixture key. `artifacts.rs` builds inputs with `scripts/gen-test-artifacts/` (macOS only).
 - `tests/fixtures/`: throwaway self-signed key pairs. `test-*.pem` for unit tests, `e2e-developer-id-*.pem` (Developer ID-style extensions) for E2E tests. See `tests/fixtures/README.md`.
