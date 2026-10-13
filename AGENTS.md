@@ -18,7 +18,7 @@ See `README.md` for usage and the service API.
 - `src/signer.rs`: `RemoteKeyInfoSigner`, the remote-backed `KeyInfoSigner`.
 - `src/settings.rs`: `SigningSettings` construction (chain resolution, flags, entitlements, timestamp).
 - `scripts/gen-test-artifacts/`: shell scripts that build Mach-O, `.app`, `.dmg` and `.pkg` artifacts. The Mach-O and `.app` executable are ad-hoc signed by the linker on arm64 unless `--unsigned` is passed. The others are unsigned. The E2E tests build their inputs with them. Also used for manual testing against a deployed service.
-- `scripts/package.sh`: builds the release tarballs (binary + `README.md`) and `SHA256SUMS` for a given version (build mode), or copies already-built tarballs to fixed, unversioned names with a matching `SHA256SUMS` (`--latest` mode). Needs `tar` and a sha256 tool (`sha256sum` or `shasum`); neither mode needs macOS, even though the binaries it packages are macOS-only. Used by `.github/workflows/release.yml`'s `package` job.
+- `scripts/package.sh`: builds the release tarballs (binary + `README.md`) and `SHA256SUMS` for a given version (build mode), or copies already-built tarballs to fixed, unversioned names with a matching `SHA256SUMS` (`--latest` mode). Needs `tar` and a sha256 tool (`sha256sum` or `shasum`); neither mode needs macOS, even though the binaries it packages are macOS-only. Used by `.github/workflows/release.yml`'s and `.gitlab-ci.yml`'s `package` jobs.
 - `scripts/check-release-tag.sh`: fails unless a `vX.Y.Z` tag matches `Cargo.toml`'s version. Used by `.github/workflows/release.yml`'s `check-tag` job before a release build runs.
 - `scripts/cargo-version.sh`: prints `Cargo.toml`'s package version. Shared by `check-release-tag.sh` and `.github/workflows/release.yml`'s version resolution, so the version is only parsed in one place.
 - `action.yml`: a composite GitHub Action that downloads the released binary for the runner's architecture, checks it against `SHA256SUMS`, and adds it to `PATH`.
@@ -32,10 +32,13 @@ See `README.md` for usage and the service API.
 
 ## Releases
 
-Binaries are not signed yet. Signing will be added in the build job (see the placeholder comment in `.github/workflows/release.yml`). GitHub Actions triggers on push to `main` and on `v*` tags, but only publishes on a `v*` tag that matches `Cargo.toml`'s version:
+Binaries are not signed yet. Signing will be added in the build jobs (see the placeholder comments in both CI configs). Both pipelines package on every trusted ref (`main` and `v*` tags). GitHub additionally only publishes on a `v*` tag that matches `Cargo.toml`'s version:
 
 - The version string is the tag's version (without the leading `v`) on a tag, or `<Cargo.toml version>-<short commit SHA>` on `main`.
-- `build` (macOS) always builds and uploads the binaries as an artifact; `package` (Linux) downloads them, packages with `scripts/package.sh` and uploads the workflow artifact. `check-tag` always runs, but its version check only runs on a tag; a failed check blocks `build` and `package`. `release` only runs on a tag, in the `protected-main-env` environment, so its ref restrictions and any configured approval rules apply.
+- GitHub Actions (`.github/workflows/release.yml`) triggers on push to `main` and on `v*` tags. `build` (macOS) always builds and uploads the binaries as an artifact; `package` (Linux) downloads them, packages with `scripts/package.sh` and uploads the workflow artifact. `check-tag` always runs, but its version check only runs on a tag; a failed check blocks `build` and `package`. `release` only runs on a tag, in the `protected-main-env` environment, so its ref restrictions and any configured approval rules apply.
+- GitLab CI's `build-macos` always builds and uploads the binaries as an artifact; `package` (Linux) packages them with `scripts/package.sh` on `main` and on `v*` tags (`dist/` is a job artifact either way).
+
+On GitLab, `build-macos` and `package` both declare `needs: check-release-tag` (`optional: true`, since that job only exists on a `v*` tag). If the tag doesn't match `Cargo.toml`'s version, `check-release-tag` fails and blocks both: a mismatched tag never even starts the macOS build, and packaging never runs. The `optional: true` need is a no-op on branch and MR pipelines, where `check-release-tag` doesn't exist.
 
 **Publishing:**
 
@@ -53,4 +56,4 @@ Before committing: `cargo fmt --check` and `cargo clippy --all-targets -- -Dwarn
 
 `.gitlab-ci.yml` runs `fmt`, `shellcheck` (on every `.sh` file under `scripts/`), `clippy` and `test-linux` on Linux. `test-macos` (full E2E) and `build-macos` (release binaries for both targets, plus a universal one made with `lipo`) run on a macOS runner. macOS runners are scarcer than Linux ones, so these jobs run less often. They always run on the default branch and on tags. On other branches, they run only when the code, tests, scripts, toolchain or CI config differ from `main`. All jobs install the toolchain pinned in `rust-toolchain.toml`, whatever the runner image ships.
 
-The `check-tag` job in `.github/workflows/release.yml` always runs, but its `scripts/check-release-tag.sh` step only runs on a `v*` tag, so a mismatched tag fails the job and blocks `build` and `package`. See "Releases" above for exactly how it gates them, and for how `release` only runs on a tag.
+`check-release-tag` (GitLab) only exists on a `v*` tag; the `check-tag` job (GitHub, `.github/workflows/release.yml`) always runs, but its `scripts/check-release-tag.sh` step only runs on a tag. Either way, a mismatched tag fails the check, which blocks building and packaging. See "Releases" above for exactly how each CI system gates its build and packaging on that check, and for how `.github/workflows/release.yml` also runs on `main`.

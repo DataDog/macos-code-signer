@@ -81,6 +81,17 @@ shellcheck:
     - shellcheck --version
     - find scripts -type f -name '*.sh' -exec shellcheck {} +
 
+# Only runs on release tags: enforces that the tag matches Cargo.toml's
+# version before build-macos and package run with it.
+check-release-tag:
+  stage: lint
+  image: $RUST_IMAGE
+  tags: ["$LINUX_RUNNER_TAG"]
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v/'
+  script:
+    - scripts/check-release-tag.sh "$CI_COMMIT_TAG"
+
 clippy:
   extends: .linux
   stage: lint
@@ -105,7 +116,13 @@ test-macos:
 build-macos:
   extends: .macos
   stage: build
-  needs: []
+  # check-release-tag only exists in the pipeline on a tag (its own rules).
+  # optional: true keeps branch and MR pipelines working, where it isn't
+  # created and this need is a no-op. On a tag, a mismatched one stops the
+  # macOS build before it even starts.
+  needs:
+    - job: check-release-tag
+      optional: true
   script:
     - cargo build --release --locked --target aarch64-apple-darwin
     - cargo build --release --locked --target x86_64-apple-darwin
@@ -116,7 +133,40 @@ build-macos:
       target/aarch64-apple-darwin/release/macos-code-signer
       target/x86_64-apple-darwin/release/macos-code-signer
     - lipo -info target/universal-apple-darwin/release/macos-code-signer
+    # Signing and notarization will be added here, restricted to the
+    # trusted-jobs CI Identity.
   artifacts:
     expire_in: 1 week
     paths:
       - target/*-apple-darwin/release/macos-code-signer
+
+# Packages build-macos's binaries into the release archives.
+# scripts/package.sh only needs tar and a sha256 tool, so this runs on the
+# same Linux runner as the lint jobs instead of spending a scarce macOS
+# one. Trusted refs only (main and v* tags); needs check-release-tag
+# (optional, since that job only exists on a tag), so a tag that doesn't
+# match Cargo.toml's version blocks packaging too.
+package:
+  stage: build
+  image: $RUST_IMAGE
+  tags: ["$LINUX_RUNNER_TAG"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG =~ /^v/
+  needs:
+    - build-macos
+    - job: check-release-tag
+      optional: true
+  script:
+    - |
+      version=""
+      case "$CI_COMMIT_TAG" in
+        v*) version="${CI_COMMIT_TAG#v}" ;;
+      esac
+      if [ -z "$version" ]; then
+        version="$(scripts/cargo-version.sh)-${CI_COMMIT_SHORT_SHA}"
+      fi
+      scripts/package.sh "$version" dist
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - dist/
