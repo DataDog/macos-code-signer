@@ -79,7 +79,7 @@ shellcheck:
     - apt-get update -qq
     - apt-get install -qq -y --no-install-recommends shellcheck
     - shellcheck --version
-    - shellcheck scripts/gen-test-artifacts/*.sh
+    - find scripts -type f -name '*.sh' -exec shellcheck {} +
 
 clippy:
   extends: .linux
