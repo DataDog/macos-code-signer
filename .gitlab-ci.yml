@@ -7,7 +7,7 @@ stages:
 variables:
   # Only provides rustup: jobs install the toolchain from rust-toolchain.toml.
   RUST_IMAGE: registry.ddbuild.io/images/mirror/rust:1.96@sha256:1f0dbad1df66647807e6952d1db85d0b2bda7606cb2139d82517e4f009967376
-  MACOS_IMAGE: 486234852809.dkr.ecr.us-east-1.amazonaws.com/ci/ci-platform-machine-images/tart-vm:shared-sonoma-latest
+  MACOS_IMAGE: 486234852809.dkr.ecr.us-east-1.amazonaws.com/ci/ci-platform-machine-images/tart-vm:shared-sequoia-latest
   AWS_CLI_IMAGE: registry.ddbuild.io/images/mirror/amazon/aws-cli:2.17.32@sha256:10ca062d9b8e8512c245f03fd0710ba7c197891658c8dcea200c1d8d0e28961c
   MACOS_RUNNER_TAG: macos:tart
   LINUX_RUNNER_TAG: arch:amd64
