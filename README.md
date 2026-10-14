@@ -16,6 +16,8 @@ signature comes back, apple-codesign embeds it in <input> or <output>
 
 ## Install
 
+Released binaries are signed with a Datadog Developer ID Application certificate and notarized by Apple, so they run under Gatekeeper without a warning.
+
 Download a prebuilt binary from the [releases page](https://github.com/DataDog/macos-code-signer/releases). Each release has `darwin_arm64`, `darwin_amd64` and `darwin_universal` tarballs, plus a `SHA256SUMS` file to check them against:
 
 ```

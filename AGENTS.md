@@ -34,11 +34,17 @@ See `README.md` for usage and the service API.
 
 ## Releases
 
-Binaries are not signed yet. Signing will be added in the build jobs (see the placeholder comments in both CI configs). Both pipelines package on every trusted ref (`main` and `v*` tags), but only publish on a `v*` tag that matches `Cargo.toml`'s version:
+Both pipelines package on every trusted ref (`main` and `v*` tags), but only publish on a `v*` tag that matches `Cargo.toml`'s version:
 
 - The version string is the tag's version (without the leading `v`) on a tag, or `<Cargo.toml version>-<short commit SHA>` on `main`.
-- GitHub Actions (`.github/workflows/release.yml`) triggers on push to `main` and on `v*` tags. `build` (macOS) always builds and uploads the binaries as an artifact; `package` (Linux) downloads them, packages with `scripts/package.sh` and uploads the workflow artifact. `check-tag` always runs, but its version check only runs on a tag; a failed check blocks `build` and `package`. `release` only runs on a tag, in the `protected-main-env` environment, so its ref restrictions and any configured approval rules apply.
+- GitHub Actions (`.github/workflows/release.yml`) triggers on push to `main` and on `v*` tags. `build` (macOS, `protected-main-env`) builds, signs and verifies the binaries, then uploads them as an artifact. `notarize` (Linux, `protected-main-env`) submits them to Apple and waits. `verify-macos` (macOS) checks the signature, Team ID, hardened runtime and notarization. `package` (Linux) downloads the verified binaries, packages with `scripts/package.sh` and uploads the workflow artifact. `check-tag` always runs, but its version check only runs on a tag; a failed check blocks `build` and `package`. `release` only runs on a tag, in the `protected-main-env` environment, so its ref restrictions and any configured approval rules apply.
 - GitLab CI's `build-macos` always builds and uploads the binaries as an artifact; `package` (Linux) packages them with `scripts/package.sh` on `main` and on `v*` tags (`dist/` is a job artifact either way). `release-s3` only runs on `v*` tags.
+
+**Signing and notarization** (both CI systems, bootstrap certificate, see `scripts/sign-legacy.sh`):
+
+- Signing uses a pinned, checksum-verified `rcodesign` and a Developer ID Application certificate stored as a legacy `.p12`: `[GH]` (GitHub secrets, `protected-main-env`) on GitHub Actions, `[I]` (Vault, `trusted-jobs` CI Identity) on GitLab. Both sign with `--code-signature-flags runtime --binary-identifier com.datadoghq.macos-code-signer`.
+- Notarization submits a zip of the signed binaries to Apple's notary service with `rcodesign notary-submit --api-key-file ... --wait`, using an App Store Connect API key from the same secret stores. Bare Mach-O binaries can't be stapled, so the notarization ticket is only ever checked online, never attached to the binary.
+- `verify-macos` runs `codesign --verify --strict --verbose=2`, checks `TeamIdentifier` and the `runtime` flag in `codesign -dvv`, and checks the notarization ticket with `codesign --test-requirement="=notarized"`. `spctl --assess --type execute` is not used: it rejects a bare Mach-O with "does not seem to be an app" regardless of signature or notarization status, so it can't tell a good binary from a bad one here.
 
 On GitLab, `build-macos` and `package` both declare `needs: check-release-tag` (`optional: true`, since that job only exists on a `v*` tag). If the tag doesn't match `Cargo.toml`'s version, `check-release-tag` fails and blocks both: a mismatched tag never even starts the macOS build, and packaging never runs. `release-s3` uses `dependencies: [package]` instead of `needs`, so it's gated by stage order rather than its own need: it waits for every earlier stage (lint, including `check-release-tag`, then test and build) to finish before it can start. The `optional: true` need is a no-op on branch and MR pipelines, where `check-release-tag` doesn't exist.
 
