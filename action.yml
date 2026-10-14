@@ -1,0 +1,83 @@
+name: macos-code-signer
+description: Install the macos-code-signer CLI from a GitHub release and add it to PATH.
+inputs:
+  version:
+    description: >
+      Release to install, e.g. "v0.1.0". Defaults to this action's own ref
+      when the action is used as DataDog/macos-code-signer@vX.Y.Z.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Check runner is macOS
+      shell: bash
+      env:
+        RUNNER_OS_INPUT: ${{ runner.os }}
+      run: |
+        if [ "$RUNNER_OS_INPUT" != "macOS" ]; then
+          echo "::error::macos-code-signer only ships macOS binaries, this runner is $RUNNER_OS_INPUT" >&2
+          exit 1
+        fi
+
+    - name: Resolve version and arch
+      shell: bash
+      env:
+        VERSION_INPUT: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
+        RUNNER_ARCH_INPUT: ${{ runner.arch }}
+      run: |
+        version="$VERSION_INPUT"
+        if [ -z "$version" ]; then
+          version="$ACTION_REF"
+        fi
+        if [ -z "$version" ]; then
+          echo "::error::could not resolve a version, pass the 'version' input explicitly" >&2
+          exit 1
+        fi
+        if [[ ! "$version" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::version '$version' does not look like X.Y.Z or vX.Y.Z" >&2
+          exit 1
+        fi
+        # Normalize to a leading v: release tags (and so the download URL)
+        # always have one, even when the input or action ref doesn't.
+        version="v${version#v}"
+
+        case "$RUNNER_ARCH_INPUT" in
+          ARM64) arch="arm64" ;;
+          X64) arch="amd64" ;;
+          *)
+            echo "::error::unsupported runner arch $RUNNER_ARCH_INPUT" >&2
+            exit 1
+            ;;
+        esac
+
+        echo "MACOS_CODE_SIGNER_VERSION=$version" >>"$GITHUB_ENV"
+        echo "MACOS_CODE_SIGNER_ARCH=$arch" >>"$GITHUB_ENV"
+
+    - name: Download and verify release
+      shell: bash
+      # MACOS_CODE_SIGNER_VERSION and MACOS_CODE_SIGNER_ARCH come from
+      # $GITHUB_ENV in the previous step: already validated shell values,
+      # not raw expressions.
+      run: |
+        version="$MACOS_CODE_SIGNER_VERSION"
+        arch="$MACOS_CODE_SIGNER_ARCH"
+        archive="macos-code-signer_${version#v}_darwin_${arch}.tar.gz"
+        base_url="https://github.com/DataDog/macos-code-signer/releases/download/${version}"
+
+        tmp_dir="$(mktemp -d)"
+        curl --proto '=https' --tlsv1.2 -sSfL -o "$tmp_dir/SHA256SUMS" "$base_url/SHA256SUMS"
+        curl --proto '=https' --tlsv1.2 -sSfL -o "$tmp_dir/$archive" "$base_url/$archive"
+
+        (
+          cd "$tmp_dir"
+          grep " $archive\$" SHA256SUMS | shasum -a 256 -c -
+        )
+
+        install_dir="$tmp_dir/bin"
+        mkdir -p "$install_dir"
+        tar -xzf "$tmp_dir/$archive" -C "$install_dir" macos-code-signer
+        chmod +x "$install_dir/macos-code-signer"
+
+        echo "$install_dir" >>"$GITHUB_PATH"
