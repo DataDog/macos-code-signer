@@ -230,13 +230,14 @@ verify-macos:
         echo "=== $bin ==="
         codesign --verify --strict --verbose=2 "$bin"
 
-        info="$(codesign -dvv "$bin" 2>&1)"
+        info="$(codesign -dvvv "$bin" 2>&1)"
         echo "$info"
         echo "$info" | grep -q "TeamIdentifier=${APPLE_DEVELOPER_TEAM_ID}"
         echo "$info" | grep -q "flags=.*runtime"
 
-        # spctl can't assess bare binaries, so check the ticket directly.
-        codesign --test-requirement="=notarized" -v "$bin"
+        # --check-notarization forces an online ticket lookup: a bare
+        # binary can't be stapled, and a fresh runner has no cache.
+        codesign --verify --check-notarization --test-requirement="=notarized" -v "$bin"
       done
 
 # Packages build-macos's (signed, notarized) binaries into the release
