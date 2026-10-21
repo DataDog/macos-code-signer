@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Datadog's Apple Developer Team ID, checked in verify-macos.
+  APPLE_DEVELOPER_TEAM_ID: JKFCB4CN7C
+
 jobs:
   # Always runs; the version check itself only matters on a tag push, so
   # it's a step-level if instead of a job-level one. A mismatched tag
@@ -23,9 +27,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: scripts/check-release-tag.sh "$GITHUB_REF_NAME"
 
+  # Builds and signs the release binaries; signing secrets live in
+  # protected-main-env.
   build:
     needs: check-tag
     runs-on: macos-latest
+    environment: protected-main-env
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust toolchain
@@ -42,18 +49,67 @@ jobs:
             target/aarch64-apple-darwin/release/macos-code-signer \
             target/x86_64-apple-darwin/release/macos-code-signer
           lipo -info target/universal-apple-darwin/release/macos-code-signer
-      # Signing and notarization will be added here, restricted to the
-      # protected-main-env environment.
+      - name: Sign binaries
+        env:
+          APPLE_DEVELOPER_ID_APPLICATION_P12: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12 }}
+          APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD }}
+        run: scripts/sign-legacy.sh sign target/*-apple-darwin/release/macos-code-signer
+      - name: Verify signature
+        run: |
+          for bin in target/*-apple-darwin/release/macos-code-signer; do
+            codesign --verify --strict --verbose=2 "$bin"
+          done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-binaries
           path: target/*-apple-darwin/release/macos-code-signer
 
+  # Submits the signed binaries for notarization and waits. Runs on
+  # Linux so --wait doesn't tie up a scarce macOS runner.
+  notarize:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: protected-main-env
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-binaries
+          path: target
+      - name: Notarize binaries
+        env:
+          APPLE_APP_STORE_CONNECT_API_DATA: ${{ secrets.APPLE_APP_STORE_CONNECT_API_DATA }}
+        run: scripts/sign-legacy.sh notarize target/*-apple-darwin/release/macos-code-signer
+
+  # Final signature and notarization check, on a real macOS Gatekeeper.
+  verify-macos:
+    needs: notarize
+    runs-on: macos-latest
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-binaries
+          path: target
+      - name: Verify signature, Team ID, hardened runtime and notarization
+        run: |
+          for bin in target/*-apple-darwin/release/macos-code-signer; do
+            echo "=== $bin ==="
+            codesign --verify --strict --verbose=2 "$bin"
+
+            info="$(codesign -dvv "$bin" 2>&1)"
+            echo "$info"
+            echo "$info" | grep -q "TeamIdentifier=${APPLE_DEVELOPER_TEAM_ID}"
+            echo "$info" | grep -q "flags=.*runtime"
+
+            # spctl can't assess bare binaries, so check the ticket directly.
+            codesign --test-requirement="=notarized" -v "$bin"
+          done
+
   # Packages build's binaries into the release archives. scripts/package.sh
   # only needs tar, so this runs on a Linux runner instead of the scarcer
   # macOS one.
   package:
-    needs: [check-tag, build]
+    needs: [check-tag, verify-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
