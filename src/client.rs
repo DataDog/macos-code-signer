@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
-use url::Host;
+use url::{Host, Url};
 
 /// How long to wait for a single request to macos-signing-service before
 /// giving up, so a hung connection can't block the CLI forever.
@@ -54,7 +54,7 @@ struct SignDigestRequest<'a> {
 /// macos-signing-service trusts.
 pub struct SigningServiceClient {
     http: Client,
-    base_url: String,
+    base_url: Url,
     oidc_token: String,
 }
 
@@ -65,7 +65,7 @@ impl SigningServiceClient {
     /// address (to allow testing against a local mock server): plaintext
     /// HTTP would otherwise leak `oidc_token` to anyone on the network path.
     pub fn new(base_url: &str, oidc_token: &str) -> anyhow::Result<Self> {
-        Self::require_https_or_loopback(base_url)?;
+        let base_url = Self::parse_base_url(base_url)?;
 
         // Disable redirects: reqwest keeps the Authorization header on a same-host
         // redirect, which would leak `oidc_token` if an HTTPS endpoint ever
@@ -77,7 +77,7 @@ impl SigningServiceClient {
 
         Ok(Self {
             http,
-            base_url: base_url.trim_end_matches('/').to_owned(),
+            base_url,
             oidc_token: oidc_token.to_owned(),
         })
     }
@@ -86,10 +86,7 @@ impl SigningServiceClient {
     pub fn get_certificate(&self, cert_id: &str) -> anyhow::Result<Certificate> {
         let response = self
             .http
-            .get(format!(
-                "{}/signer/macos/certificates/{cert_id}",
-                self.base_url
-            ))
+            .get(self.certificate_url(cert_id, &[])?)
             .bearer_auth(&self.oidc_token)
             .send()?;
 
@@ -106,6 +103,7 @@ impl SigningServiceClient {
         digest: &[u8],
         key_version: Option<i64>,
     ) -> anyhow::Result<Vec<u8>> {
+        let url = self.certificate_url(cert_id, &["sign"])?;
         let request = SignDigestRequest {
             digest: &base64::engine::general_purpose::STANDARD.encode(digest),
             key_version,
@@ -113,10 +111,7 @@ impl SigningServiceClient {
 
         let response = self
             .http
-            .post(format!(
-                "{}/signer/macos/certificates/{cert_id}/sign",
-                self.base_url
-            ))
+            .post(url)
             .bearer_auth(&self.oidc_token)
             .json(&request)
             .send()?;
@@ -157,14 +152,71 @@ impl SigningServiceClient {
         Ok(serde_json::from_str(&text)?)
     }
 
-    /// Rejects `base_url` unless it is HTTPS or targets a local loopback
-    /// address; see [`Self::new`].
-    fn require_https_or_loopback(base_url: &str) -> anyhow::Result<()> {
-        let parsed = url::Url::parse(base_url)
+    /// Returns `{base_url}/signer/macos/certificates/{cert_id}/{suffix...}`,
+    /// with `cert_id` as exactly one percent-encoded path segment.
+    ///
+    /// `cert_id` can't change the authority, query, fragment or path depth:
+    /// `%`, `?`, `#` and other reserved bytes are percent-encoded, so a
+    /// server that decodes the path once sees the ID verbatim. IDs that
+    /// would be ambiguous after that one decode are rejected instead:
+    /// empty, `.`, `..` (dot segments), `/` and `\\` (separators, often
+    /// decoded or normalized by proxies) and control characters. A server
+    /// or proxy that decodes the path more than once is not defended.
+    fn certificate_url(&self, cert_id: &str, suffix: &[&str]) -> anyhow::Result<Url> {
+        Self::validate_cert_id(cert_id)?;
+
+        let mut url = self.base_url.clone();
+        url.path_segments_mut()
+            .map_err(|()| anyhow::anyhow!("service URL can't have a path"))?
+            .pop_if_empty()
+            .extend(["signer", "macos", "certificates", cert_id])
+            .extend(suffix);
+
+        Ok(url)
+    }
+
+    /// Rejects certificate IDs that can't be sent as a single unambiguous
+    /// path segment; see [`Self::certificate_url`].
+    fn validate_cert_id(cert_id: &str) -> anyhow::Result<()> {
+        if cert_id.is_empty() {
+            anyhow::bail!("certificate ID must not be empty");
+        }
+        if cert_id == "." || cert_id == ".." {
+            anyhow::bail!("certificate ID {cert_id:?} is a dot path segment");
+        }
+        if cert_id.contains(['/', '\\']) || cert_id.chars().any(char::is_control) {
+            anyhow::bail!(
+                "certificate ID {cert_id:?} must not contain path separators or control characters"
+            );
+        }
+        Ok(())
+    }
+
+    /// Parses `base_url` and rejects it unless it is HTTPS or targets a
+    /// local loopback address; see [`Self::new`]. Also rejects credentials,
+    /// a query or a fragment, which request paths would otherwise be
+    /// appended around ambiguously. A path prefix is kept, with or without
+    /// trailing slashes.
+    fn parse_base_url(base_url: &str) -> anyhow::Result<Url> {
+        let mut parsed = Url::parse(base_url)
             .map_err(|err| anyhow::anyhow!("\"{base_url}\" is not a valid URL: {err}"))?;
 
+        if parsed.cannot_be_a_base()
+            || !parsed.username().is_empty()
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            anyhow::bail!(
+                "\"{base_url}\" must be a plain service URL, without credentials, query or fragment"
+            );
+        }
+
+        let trimmed = parsed.path().trim_end_matches('/').to_owned();
+        parsed.set_path(&trimmed);
+
         if parsed.scheme() == "https" {
-            return Ok(());
+            return Ok(parsed);
         }
 
         let is_loopback = match parsed.host() {
@@ -175,7 +227,7 @@ impl SigningServiceClient {
         };
 
         if is_loopback {
-            return Ok(());
+            return Ok(parsed);
         }
 
         anyhow::bail!(
@@ -343,5 +395,120 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("rotated"));
+    }
+
+    /// Calls `get_certificate` and `sign_digest` for `cert_id` against a
+    /// catch-all mock at `server_path`, returning each call's outcome and
+    /// the raw path and query of every request the server received.
+    async fn route(server_path: &str, cert_id: &str) -> (bool, bool, Vec<String>) {
+        let server = MockServer::start().await;
+        Mock::given(wiremock::matchers::any())
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let base_url = format!("{}{server_path}", server.uri());
+        let cert_id = cert_id.to_owned();
+        let (get_rejected, sign_rejected) = tokio::task::spawn_blocking(move || {
+            let client = SigningServiceClient::new(&base_url, "token").unwrap();
+            let get = client.get_certificate(&cert_id).unwrap_err().to_string();
+            let sign = client
+                .sign_digest(&cert_id, b"digest", None)
+                .unwrap_err()
+                .to_string();
+            (!get.contains("500"), !sign.contains("500"))
+        })
+        .await
+        .unwrap();
+
+        let requests = server
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|request| {
+                let mut target = format!("{} {}", request.method, request.url.path());
+                if let Some(query) = request.url.query() {
+                    target.push('?');
+                    target.push_str(query);
+                }
+                target
+            })
+            .collect();
+
+        (get_rejected, sign_rejected, requests)
+    }
+
+    #[tokio::test]
+    async fn cert_ids_are_sent_as_one_encoded_path_segment() {
+        for (cert_id, encoded) in [
+            ("cert1", "cert1"),
+            ("my_cert-1.v2~", "my_cert-1.v2~"),
+            ("a?b=c", "a%3Fb=c"),
+            ("a#frag", "a%23frag"),
+            ("%2e%2e", "%252e%252e"),
+            ("..%2Fadmin", "..%252Fadmin"),
+            ("...", "..."),
+            ("a b", "a%20b"),
+        ] {
+            let (get_rejected, sign_rejected, requests) = route("", cert_id).await;
+            assert!(!get_rejected && !sign_rejected, "{cert_id:?} was rejected");
+            assert_eq!(
+                requests,
+                [
+                    format!("GET /signer/macos/certificates/{encoded}"),
+                    format!("POST /signer/macos/certificates/{encoded}/sign"),
+                ],
+                "{cert_id:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn ambiguous_cert_ids_are_rejected_without_any_request() {
+        for cert_id in ["", ".", "..", "a/b", "../x", "a\\b", "a\nb", "a\0b"] {
+            let (get_rejected, sign_rejected, requests) = route("", cert_id).await;
+            assert!(get_rejected && sign_rejected, "{cert_id:?} was accepted");
+            assert!(requests.is_empty(), "{cert_id:?} sent {requests:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn base_url_path_prefix_is_kept_with_or_without_trailing_slash() {
+        for (prefix, expected) in [
+            ("", ""),
+            ("/", ""),
+            ("/api", "/api"),
+            ("/api/", "/api"),
+            ("/a/b/", "/a/b"),
+            ("//", ""),
+            ("/api//", "/api"),
+            ("/api///", "/api"),
+        ] {
+            let (_, _, requests) = route(prefix, "cert1").await;
+            assert_eq!(
+                requests,
+                [
+                    format!("GET {expected}/signer/macos/certificates/cert1"),
+                    format!("POST {expected}/signer/macos/certificates/cert1/sign"),
+                ],
+                "{prefix:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn new_rejects_base_urls_with_credentials_query_or_fragment() {
+        for base_url in [
+            "https://user@signing.example.com",
+            "https://user:pass@signing.example.com",
+            "https://signing.example.com/?x=1",
+            "https://signing.example.com/#frag",
+        ] {
+            assert!(
+                SigningServiceClient::new(base_url, "token").is_err(),
+                "{base_url} was accepted"
+            );
+        }
     }
 }

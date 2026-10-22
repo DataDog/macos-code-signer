@@ -55,7 +55,7 @@ macos-code-signer --service-url <url> --cert-id <cert_id> sign [options] <input>
 
 Global flags, required on every invocation:
 - `--service-url`: base URL of `macos-signing-service`. Can also be set with `MACOS_SIGNING_SERVICE_URL`. Must be HTTPS, except for loopback addresses (local testing).
-- `--cert-id`: ID of the certificate to sign with, as registered in `macos-signing-service`.
+- `--cert-id`: ID of the certificate to sign with, as registered in `macos-signing-service`. It is sent percent-encoded as a single path segment. IDs that are empty, `.` or `..`, or contain `/`, `\` or control characters are rejected.
 
 The OIDC bearer token is read only from the `MACOS_SIGNING_SERVICE_TOKEN` environment variable. It is never a flag, so it can't leak through shell history or `ps`.
 
