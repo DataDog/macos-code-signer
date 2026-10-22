@@ -80,4 +80,21 @@ runs:
         tar -xzf "$tmp_dir/$archive" -C "$install_dir" macos-code-signer
         chmod +x "$install_dir/macos-code-signer"
 
+        # Datadog's Apple Team ID. Same checks as the release verify-macos job.
+        team_id="JKFCB4CN7C"
+        bin="$install_dir/macos-code-signer"
+        codesign --verify --strict --verbose=2 "$bin"
+        info="$(codesign -dvvv "$bin" 2>&1)"
+        if ! echo "$info" | grep -qx "TeamIdentifier=${team_id}"; then
+          echo "::error::macos-code-signer is not signed by Team ID $team_id" >&2
+          exit 1
+        fi
+        if ! echo "$info" | grep -q "flags=.*runtime"; then
+          echo "::error::macos-code-signer is not signed with the hardened runtime" >&2
+          exit 1
+        fi
+        # --check-notarization forces an online ticket lookup: a bare
+        # binary can't be stapled, and a fresh runner has no cache.
+        codesign --verify --check-notarization --test-requirement="=notarized" -v "$bin"
+
         echo "$install_dir" >>"$GITHUB_PATH"
