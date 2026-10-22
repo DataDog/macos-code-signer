@@ -2,6 +2,7 @@ stages:
   - lint
   - test
   - build
+  - sign
   - notarize
   - verify
   - package
@@ -126,6 +127,9 @@ test-macos:
   script:
     - cargo test --locked
 
+# Builds the unsigned release binaries on every pipeline where the macOS
+# rules match. No id_tokens or secrets: build-time code never sees
+# signing material. sign-macos signs them on trusted refs.
 build-macos:
   extends: .macos
   stage: build
@@ -136,13 +140,7 @@ build-macos:
   needs:
     - job: check-release-tag
       optional: true
-  # Grants Vault access on a protected ref; the script below skips
-  # signing elsewhere, where the secrets aren't reachable.
-  id_tokens:
-    CI_IDENTITIES_GITLAB_ID_TOKEN:
-      aud: ci-identities
-  variables:
-    CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64: e7fa700d85ad0489effe0895d77350082a9c6bd7fb64a058384d308b6dd3ed5a
+      artifacts: false
   script:
     - cargo build --release --locked --target aarch64-apple-darwin
     - cargo build --release --locked --target x86_64-apple-darwin
@@ -153,48 +151,67 @@ build-macos:
       target/aarch64-apple-darwin/release/macos-code-signer
       target/x86_64-apple-darwin/release/macos-code-signer
     - lipo -info target/universal-apple-darwin/release/macos-code-signer
-    # Signs only on the default branch or a v* tag: that's the only scope
-    # where the Vault secrets below are reachable. MACOS_RUNNER_TAG is
-    # Apple Silicon, hence the darwin-arm64 binary.
-    - |
-      is_trusted_ref=false
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        is_trusted_ref=true
-      fi
-      case "$CI_COMMIT_TAG" in
-        v*) is_trusted_ref=true ;;
-      esac
-      if [ "$is_trusted_ref" = true ]; then
-        curl --proto '=https' --tlsv1.2 -sSfL \
-          -o ci-identities-ci-job-client \
-          "https://binaries.ddbuild.io/ci-identities/ci-identities-ci-job-client/versions/${CI_IDENTITIES_CLIENT_VERSION}/ci-identities-ci-job-client-darwin-arm64"
-        echo "${CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64}  ci-identities-ci-job-client" | shasum -a 256 -c -
-        chmod +x ci-identities-ci-job-client
-        p12_b64="$(./ci-identities-ci-job-client secrets read apple-application-signing certificate)"
-        p12_password="$(./ci-identities-ci-job-client secrets read apple-application-signing passphrase)"
-        export APPLE_DEVELOPER_ID_APPLICATION_P12="$p12_b64"
-        export APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD="$p12_password"
-        scripts/sign-legacy.sh sign target/*-apple-darwin/release/macos-code-signer
-        for bin in target/*-apple-darwin/release/macos-code-signer; do
-          codesign --verify --strict --verbose=2 "$bin"
-        done
-      else
-        echo "skipping signing: not a trusted ref, no secrets available"
-      fi
   artifacts:
     expire_in: 1 week
     paths:
       - target/*-apple-darwin/release/macos-code-signer
 
+# Signs build-macos's binaries. Default branch or a v* tag only: that's
+# the only scope where the Vault secrets are reachable. Doesn't extend
+# .macos: no cache, no Rust toolchain, a fresh clone, and only the
+# signing scripts run. Tag-version gating comes through build-macos's
+# check-release-tag need. MACOS_RUNNER_TAG is Apple Silicon, hence the
+# darwin-arm64 client.
+sign-macos:
+  stage: sign
+  image: $MACOS_IMAGE
+  tags: ["$MACOS_RUNNER_TAG"]
+  cache: []
+  needs:
+    - build-macos
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG =~ /^v/
+  id_tokens:
+    CI_IDENTITIES_GITLAB_ID_TOKEN:
+      aud: ci-identities
+  variables:
+    GIT_STRATEGY: clone
+    CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64: e7fa700d85ad0489effe0895d77350082a9c6bd7fb64a058384d308b6dd3ed5a
+  script:
+    - scripts/check-release-binaries.sh target
+    - >-
+      curl --proto '=https' --tlsv1.2 -sSfL
+      -o ci-identities-ci-job-client
+      "https://binaries.ddbuild.io/ci-identities/ci-identities-ci-job-client/versions/${CI_IDENTITIES_CLIENT_VERSION}/ci-identities-ci-job-client-darwin-arm64"
+    - echo "${CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64}  ci-identities-ci-job-client" | shasum -a 256 -c -
+    - chmod +x ci-identities-ci-job-client
+    - |
+      p12_b64="$(./ci-identities-ci-job-client secrets read apple-application-signing certificate)"
+      p12_password="$(./ci-identities-ci-job-client secrets read apple-application-signing passphrase)"
+      export APPLE_DEVELOPER_ID_APPLICATION_P12="$p12_b64"
+      export APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD="$p12_password"
+      bins="target/aarch64-apple-darwin/release/macos-code-signer target/x86_64-apple-darwin/release/macos-code-signer target/universal-apple-darwin/release/macos-code-signer"
+      # shellcheck disable=SC2086
+      scripts/sign-legacy.sh sign $bins
+      for bin in $bins; do
+        codesign --verify --strict --verbose=2 "$bin"
+      done
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - target/aarch64-apple-darwin/release/macos-code-signer
+      - target/x86_64-apple-darwin/release/macos-code-signer
+      - target/universal-apple-darwin/release/macos-code-signer
+
 # Submits the signed binaries for notarization and waits. Runs on Linux
 # so --wait doesn't tie up a scarce macOS runner. Default branch or a
-# v* tag only, same scope as the signing step in build-macos.
+# v* tag only, same scope as sign-macos.
 notarize:
   stage: notarize
   image: $RUST_IMAGE
   tags: ["$LINUX_RUNNER_TAG"]
   needs:
-    - build-macos
+    - sign-macos
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG =~ /^v/
   id_tokens:
@@ -213,13 +230,13 @@ notarize:
     - scripts/sign-legacy.sh notarize target/*-apple-darwin/release/macos-code-signer
 
 # Final signature and notarization check. Default branch or a v* tag
-# only. build-macos is needed directly for its artifacts; notarize only
+# only. sign-macos is needed directly for its artifacts; notarize only
 # for ordering.
 verify-macos:
   extends: .macos
   stage: verify
   needs:
-    - build-macos
+    - sign-macos
     - job: notarize
       artifacts: false
   rules:
@@ -240,7 +257,7 @@ verify-macos:
         codesign --verify --check-notarization --test-requirement="=notarized" -v "$bin"
       done
 
-# Packages build-macos's (signed, notarized) binaries into the release
+# Packages sign-macos's (signed, notarized) binaries into the release
 # archives. scripts/package.sh only needs tar and a sha256 tool, so this
 # runs on the same Linux runner as the lint jobs instead of spending a
 # scarce macOS one. Trusted refs only (main and v* tags); needs
@@ -252,15 +269,16 @@ package:
   tags: ["$LINUX_RUNNER_TAG"]
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG =~ /^v/
-  # build-macos is needed directly for its artifacts; verify-macos only
-  # for ordering. check-release-tag is optional: true since it only
-  # exists in the pipeline on a tag.
+  # sign-macos is needed directly for its artifacts; verify-macos and
+  # check-release-tag only for ordering. check-release-tag is
+  # optional: true since it only exists in the pipeline on a tag.
   needs:
-    - build-macos
+    - sign-macos
     - job: verify-macos
       artifacts: false
     - job: check-release-tag
       optional: true
+      artifacts: false
   script:
     - |
       version=""
@@ -293,8 +311,8 @@ release-s3:
     entrypoint: [""]
   tags: ["$LINUX_RUNNER_TAG"]
   # dependencies (not needs) so this waits for every earlier stage (lint,
-  # including check-release-tag, then test and build), not just package.
-  # It still only downloads package's artifacts.
+  # including check-release-tag, then test, build, sign, notarize, verify),
+  # not just package. It still only downloads package's artifacts.
   dependencies:
     - package
   rules:
