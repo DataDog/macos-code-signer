@@ -27,12 +27,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: scripts/check-release-tag.sh "$GITHUB_REF_NAME"
 
-  # Builds and signs the release binaries; signing secrets live in
-  # protected-main-env.
+  # Builds the unsigned release binaries. No environment, secrets or
+  # id-token: build-time code never sees signing material.
   build:
     needs: check-tag
     runs-on: macos-latest
-    environment: protected-main-env
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust toolchain
@@ -49,25 +48,61 @@ jobs:
             target/aarch64-apple-darwin/release/macos-code-signer \
             target/x86_64-apple-darwin/release/macos-code-signer
           lipo -info target/universal-apple-darwin/release/macos-code-signer
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-binaries-unsigned
+          path: target/*-apple-darwin/release/macos-code-signer
+          if-no-files-found: error
+
+  # Signs build's binaries on a fresh VM. Only the signing scripts are
+  # checked out, and no toolchain, cache or build code is used. Signing
+  # secrets live in protected-main-env.
+  sign:
+    needs: build
+    runs-on: macos-latest
+    environment: protected-main-env
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/check-release-binaries.sh
+            scripts/install-rcodesign.sh
+            scripts/sign-legacy.sh
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-binaries-unsigned
+          path: target
+      - name: Check binaries
+        run: scripts/check-release-binaries.sh target
       - name: Sign binaries
         env:
           APPLE_DEVELOPER_ID_APPLICATION_P12: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12 }}
           APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD }}
-        run: scripts/sign-legacy.sh sign target/*-apple-darwin/release/macos-code-signer
+        run: |
+          scripts/sign-legacy.sh sign \
+            target/aarch64-apple-darwin/release/macos-code-signer \
+            target/x86_64-apple-darwin/release/macos-code-signer \
+            target/universal-apple-darwin/release/macos-code-signer
       - name: Verify signature
         run: |
-          for bin in target/*-apple-darwin/release/macos-code-signer; do
+          for bin in target/{aarch64,x86_64,universal}-apple-darwin/release/macos-code-signer; do
             codesign --verify --strict --verbose=2 "$bin"
           done
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-binaries
-          path: target/*-apple-darwin/release/macos-code-signer
+          path: |
+            target/aarch64-apple-darwin/release/macos-code-signer
+            target/x86_64-apple-darwin/release/macos-code-signer
+            target/universal-apple-darwin/release/macos-code-signer
+          if-no-files-found: error
 
   # Submits the signed binaries for notarization and waits. Runs on
   # Linux so --wait doesn't tie up a scarce macOS runner.
   notarize:
-    needs: build
+    needs: sign
     runs-on: ubuntu-latest
     environment: protected-main-env
     steps:
@@ -82,8 +117,9 @@ jobs:
         run: scripts/sign-legacy.sh notarize target/*-apple-darwin/release/macos-code-signer
 
   # Final signature and notarization check, on a real macOS Gatekeeper.
+  # sign produces the artifact; notarize is needed for ordering.
   verify-macos:
-    needs: notarize
+    needs: [sign, notarize]
     runs-on: macos-latest
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -106,11 +142,11 @@ jobs:
             codesign --verify --check-notarization --test-requirement="=notarized" -v "$bin"
           done
 
-  # Packages build's binaries into the release archives. scripts/package.sh
+  # Packages sign's (signed, notarized) binaries into the release archives. scripts/package.sh
   # only needs tar, so this runs on a Linux runner instead of the scarcer
   # macOS one.
   package:
-    needs: [check-tag, verify-macos]
+    needs: [check-tag, sign, verify-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
