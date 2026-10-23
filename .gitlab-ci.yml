@@ -26,18 +26,7 @@ variables:
   # Datadog's Apple Developer Team ID, checked in verify-macos.
   APPLE_DEVELOPER_TEAM_ID: JKFCB4CN7C
 
-.cargo-cache:
-  cache:
-    key:
-      prefix: $CI_JOB_NAME
-      files:
-        - Cargo.lock
-    paths:
-      - .cargo-home/registry/
-      - target/
-
 .linux:
-  extends: .cargo-cache
   image: $RUST_IMAGE
   tags: ["$LINUX_RUNNER_TAG"]
   before_script:
@@ -46,7 +35,6 @@ variables:
     - rustup component add rustfmt clippy
 
 .macos:
-  extends: .cargo-cache
   image: $MACOS_IMAGE
   tags: ["$MACOS_RUNNER_TAG"]
   before_script:
