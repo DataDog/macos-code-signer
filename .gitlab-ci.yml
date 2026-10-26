@@ -178,11 +178,14 @@ sign-macos:
       p12_password="$(./ci-identities-ci-job-client secrets read apple-application-signing passphrase)"
       export APPLE_DEVELOPER_ID_APPLICATION_P12="$p12_b64"
       export APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD="$p12_password"
-      bins="target/aarch64-apple-darwin/release/macos-code-signer target/x86_64-apple-darwin/release/macos-code-signer target/universal-apple-darwin/release/macos-code-signer"
-      # shellcheck disable=SC2086
-      scripts/sign-legacy.sh sign $bins
-      for bin in $bins; do
-        codesign --verify --strict --verbose=2 "$bin"
+      # Literal paths, no glob or word splitting: the runner shell
+      # passed the list as a single argument.
+      scripts/sign-legacy.sh sign \
+        target/aarch64-apple-darwin/release/macos-code-signer \
+        target/x86_64-apple-darwin/release/macos-code-signer \
+        target/universal-apple-darwin/release/macos-code-signer
+      for triple in aarch64 x86_64 universal; do
+        codesign --verify --strict --verbose=2 "target/${triple}-apple-darwin/release/macos-code-signer"
       done
   artifacts:
     expire_in: 1 week
@@ -215,7 +218,11 @@ notarize:
     - echo "${CI_IDENTITIES_CLIENT_SHA256_LINUX_AMD64}  ci-identities-ci-job-client" | sha256sum -c -
     - chmod +x ci-identities-ci-job-client
     - connect_api_json="$(./ci-identities-ci-job-client secrets read apple-connect-api-key json)"; export APPLE_APP_STORE_CONNECT_API_DATA="$connect_api_json"
-    - scripts/sign-legacy.sh notarize target/*-apple-darwin/release/macos-code-signer
+    - >-
+      scripts/sign-legacy.sh notarize
+      target/aarch64-apple-darwin/release/macos-code-signer
+      target/x86_64-apple-darwin/release/macos-code-signer
+      target/universal-apple-darwin/release/macos-code-signer
 
 # Final signature and notarization check. Default branch or a v* tag
 # only. sign-macos is needed directly for its artifacts; notarize only

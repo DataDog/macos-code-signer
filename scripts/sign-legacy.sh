@@ -32,6 +32,14 @@ fi
 mode="$1"
 shift
 
+# Fail early on a joined or unexpanded path list.
+for bin in "$@"; do
+  if [ ! -f "$bin" ]; then
+    echo "not a file: '$bin' (pass one binary per argument)" >&2
+    exit 1
+  fi
+done
+
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 tmp_dir="$(mktemp -d)"
