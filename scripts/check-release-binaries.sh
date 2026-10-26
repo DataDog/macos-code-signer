@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Unless explicitly stated otherwise all files in this repository are licensed under the Apache-2.0 License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2026-Present Datadog, Inc.
+
 # Checks that <target-dir> holds exactly the three expected release
 # binaries, as regular files with the expected architectures. Run by the
 # signing jobs before signing: rejects unexpected files, non-regular files

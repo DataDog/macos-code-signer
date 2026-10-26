@@ -4,6 +4,7 @@ version = "0.1.1"
 edition = "2024"
 rust-version = "1.95"
 description = "Sign macOS artifacts with a Developer ID certificate held by a remote signing service"
+license = "Apache-2.0"
 repository = "https://github.com/DataDog/macos-code-signer"
 readme = "README.md"
 keywords = ["macos", "codesign", "notarization", "developer-id"]
