@@ -119,3 +119,8 @@ scripts/gen-test-artifacts/generate-test-pkg.sh --output test.pkg
 Sign the `.pkg` with an `installer` certificate and the others with an `application` certificate. Pass `--unsigned` to the Mach-O and `.app` scripts to skip the ad-hoc signature. Run a script with `--help` for its options.
 
 `tests/fixtures/` holds the throwaway self-signed key pairs used by the tests. See [`tests/fixtures/README.md`](tests/fixtures/README.md).
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+See [`NOTICE`](NOTICE) for attribution.
