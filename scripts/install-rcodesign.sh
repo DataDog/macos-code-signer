@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# Unless explicitly stated otherwise all files in this repository are licensed under the Apache-2.0 License.
+# This product includes software developed at Datadog (https://www.datadoghq.com/).
+# Copyright 2026-Present Datadog, Inc.
+
 # Installs a pinned, checksum-verified rcodesign (from the apple-codesign
 # project) into <dest-dir>/rcodesign. Used by scripts/sign-legacy.sh on both
 # macOS (signing) and Linux (notarization) CI jobs.
