@@ -31,7 +31,7 @@ See `README.md` for usage and the service API.
 
 ## Dependencies
 
-`apple-codesign` and `apple-xar` are patched in `Cargo.toml` to an unreleased upstream git rev, because the crates.io release of `apple-codesign` depends on an older `x509-certificate` than this crate uses. Remove the patch once upstream publishes a release on `x509-certificate` 0.25.
+`x509-certificate` is pinned to 0.24 to match the version `apple-codesign` 0.29 depends on, since `src/signer.rs` implements its `KeyInfoSigner`/`Sign`/`Signer` traits. Bump both together.
 
 ## Releases
 

@@ -27,7 +27,7 @@ serde_json = "1.0.140"
 sha2 = "0.10"
 signature = "2.2.0"
 url = "2.5.7"
-x509-certificate = "0.25.0"
+x509-certificate = "0.24.0"
 zeroize = "1.8.1"
 
 [dev-dependencies]
@@ -47,9 +47,3 @@ lto = true
 codegen-units = 1
 strip = true
 
-# apple-codesign 0.29.0 on crates.io depends on x509-certificate 0.24, but this crate implements
-# x509-certificate 0.25 traits. Upstream already uses 0.25 at this rev, with no release cut yet.
-# apple-xar is patched to the same rev to keep the dependency set on one consistent commit.
-[patch.crates-io]
-apple-codesign = { git = "https://github.com/indygreg/apple-platform-rs", rev = "1aef8f7f467fe241f6a24cf2b07afb477f448a50" }
-apple-xar = { git = "https://github.com/indygreg/apple-platform-rs", rev = "1aef8f7f467fe241f6a24cf2b07afb477f448a50" }
