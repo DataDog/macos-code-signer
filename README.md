@@ -87,6 +87,8 @@ Signing does not notarize. Submit the signed artifact to Apple's notary service 
 
 ## Signing service API
 
+`macos-signing-service` is a private Datadog service. It is not part of this repository. Its API, as used by the CLI, is documented below.
+
 The CLI uses two endpoints. Both take an `Authorization: Bearer <token>` header and return JSON:API envelopes.
 
 - `GET /signer/macos/certificates/{cert_id}` returns the leaf certificate (`certificate_pem`), its type (`cert_type`) and the key version it matches (`key_version`).
@@ -119,6 +121,10 @@ scripts/gen-test-artifacts/generate-test-pkg.sh --output test.pkg
 Sign the `.pkg` with an `installer` certificate and the others with an `application` certificate. Pass `--unsigned` to the Mach-O and `.app` scripts to skip the ad-hoc signature. Run a script with `--help` for its options.
 
 `tests/fixtures/` holds the throwaway self-signed key pairs used by the tests. See [`tests/fixtures/README.md`](tests/fixtures/README.md).
+
+## Contributing
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## License
 
