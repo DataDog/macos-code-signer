@@ -82,7 +82,7 @@ shellcheck:
     - shellcheck --version
     - find scripts -type f -name '*.sh' -exec shellcheck {} +
 
-# Fails if COPYING (third-party license notices, shipped in the release
+# Fails if a COPYING file (third-party license notices, shipped in the release
 # tarballs) is stale relative to Cargo.lock or its generator inputs.
 copying:
   extends: .linux
