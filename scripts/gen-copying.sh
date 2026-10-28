@@ -9,8 +9,11 @@
 # the pinned toolchain's tag and checksum-verified, are appended. Needs cargo
 # and network access.
 #
-# Usage: gen-copying.sh          rewrite COPYING
-#        gen-copying.sh --check  fail if COPYING is stale
+# Writes one file per release target and a union for the universal binary:
+#   COPYING.aarch64-apple-darwin, COPYING.x86_64-apple-darwin, COPYING (both)
+#
+# Usage: gen-copying.sh          rewrite the COPYING files
+#        gen-copying.sh --check  fail if any COPYING file is stale
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,52 +74,80 @@ for entry in "${RUST_FILES[@]}"; do
   fi
 done
 
-"$tmp_dir/bin/cargo-about" generate \
-  --locked \
-  --manifest-path "$repo_root/Cargo.toml" \
-  --config "$repo_root/about.toml" \
-  --fail \
-  -o "$tmp_dir/COPYING" \
-  "$repo_root/about.hbs" 2>"$tmp_dir/log" || {
-  cat "$tmp_dir/log" >&2
-  exit 1
-}
-
-# --fail misses failed clarifications, which cargo-about only logs.
-if grep -E 'WARN|ERROR' "$tmp_dir/log" >&2; then
-  echo "cargo-about reported problems, see above" >&2
-  exit 1
-fi
-
-{
-  echo
-  echo "--------------------------------------------------------------------------------"
-  echo "Rust $RUST_VERSION runtime"
-  echo
-  echo "The binaries statically link parts of the Rust $RUST_VERSION runtime: the"
-  echo "standard library (std, core, alloc, panic_unwind, unwind), licensed"
-  echo "MIT OR Apache-2.0, and compiler_builtins, licensed MIT AND Apache-2.0 WITH"
-  echo "LLVM-exception. The notices below are the rust-lang/rust repository's"
-  echo "COPYRIGHT and license files at that tag, which cover the standard library,"
-  echo "and compiler-builtins' own LICENSE.txt with the LLVM exception text. The"
-  echo "Rust release's COPYRIGHT-library.html has the per-file detail."
-  echo "Source: https://github.com/rust-lang/rust/tree/$RUST_VERSION"
-  for entry in "${RUST_FILES[@]}"; do
-    read -r src dest _ <<<"$entry"
-    echo
-    echo "---- $src ----"
-    echo
-    cat "$runtime_dir/$dest"
+# Renders COPYING for the given targets into <output>.
+render() {
+  local out="$1"
+  shift
+  local target_args=() t
+  for t in "$@"; do
+    target_args+=(--target "$t")
   done
-} >>"$tmp_dir/COPYING"
 
-if [ "$check" = true ]; then
-  if ! diff -u "$repo_root/COPYING" "$tmp_dir/COPYING"; then
-    echo "COPYING is stale: run scripts/gen-copying.sh and commit the result" >&2
+  "$tmp_dir/bin/cargo-about" generate \
+    --locked \
+    --manifest-path "$repo_root/Cargo.toml" \
+    --config "$repo_root/about.toml" \
+    "${target_args[@]}" \
+    --fail \
+    -o "$out" \
+    "$repo_root/about.hbs" 2>"$tmp_dir/log" || {
+    cat "$tmp_dir/log" >&2
+    exit 1
+  }
+
+  # --fail misses failed clarifications, which cargo-about only logs.
+  if grep -E 'WARN|ERROR' "$tmp_dir/log" >&2; then
+    echo "cargo-about reported problems, see above" >&2
     exit 1
   fi
-  echo "COPYING is up to date"
-else
-  cp "$tmp_dir/COPYING" "$repo_root/COPYING"
-  echo "wrote $repo_root/COPYING"
+
+  local targets="$*"
+  sed "s/@TARGETS@/${targets// /, }/" "$out" >"$out.tmp"
+  mv "$out.tmp" "$out"
+
+  {
+    echo
+    echo "--------------------------------------------------------------------------------"
+    echo "Rust $RUST_VERSION runtime"
+    echo
+    echo "The binaries statically link parts of the Rust $RUST_VERSION runtime: the"
+    echo "standard library (std, core, alloc, panic_unwind, unwind), licensed"
+    echo "MIT OR Apache-2.0, and compiler_builtins, licensed MIT AND Apache-2.0 WITH"
+    echo "LLVM-exception. The notices below are the rust-lang/rust repository's"
+    echo "COPYRIGHT and license files at that tag, which cover the standard library,"
+    echo "and compiler-builtins' own LICENSE.txt with the LLVM exception text. The"
+    echo "Rust release's COPYRIGHT-library.html has the per-file detail."
+    echo "Source: https://github.com/rust-lang/rust/tree/$RUST_VERSION"
+    for entry in "${RUST_FILES[@]}"; do
+      read -r src dest _ <<<"$entry"
+      echo
+      echo "---- $src ----"
+      echo
+      cat "$runtime_dir/$dest"
+    done
+  } >>"$out"
+}
+
+mkdir -p "$tmp_dir/out"
+render "$tmp_dir/out/COPYING.aarch64-apple-darwin" aarch64-apple-darwin
+render "$tmp_dir/out/COPYING.x86_64-apple-darwin" x86_64-apple-darwin
+render "$tmp_dir/out/COPYING" aarch64-apple-darwin x86_64-apple-darwin
+
+stale=false
+for f in COPYING COPYING.aarch64-apple-darwin COPYING.x86_64-apple-darwin; do
+  if [ "$check" = true ]; then
+    if ! diff -u "$repo_root/$f" "$tmp_dir/out/$f"; then
+      echo "$f is stale: run scripts/gen-copying.sh and commit the result" >&2
+      stale=true
+    fi
+  else
+    cp "$tmp_dir/out/$f" "$repo_root/$f"
+    echo "wrote $repo_root/$f"
+  fi
+done
+if [ "$stale" = true ]; then
+  exit 1
+fi
+if [ "$check" = true ]; then
+  echo "COPYING files are up to date"
 fi

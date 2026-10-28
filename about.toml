@@ -1,5 +1,6 @@
 # cargo-about configuration for COPYING (rendered with about.hbs).
 # Regenerate with scripts/gen-copying.sh.
+# Union of the release targets. gen-copying.sh also renders each one alone.
 targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
