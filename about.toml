@@ -1,0 +1,98 @@
+# cargo-about configuration for COPYING (rendered with about.hbs).
+# Regenerate with scripts/gen-copying.sh.
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "0BSD",
+    "Apache-2.0 WITH LLVM-exception",
+    "BlueOak-1.0.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "bzip2-1.0.6",
+    "CDLA-Permissive-2.0",
+    "ISC",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
+]
+
+# Files cargo-about misses or misreads. Checksums pin each file's content.
+
+# ring: the crate's license map file points to these.
+[ring.clarify]
+license = "Apache-2.0 AND ISC AND MIT"
+[[ring.clarify.files]]
+path = "LICENSE-other-bits"
+license = "ISC"
+checksum = "f025ccfb7dfb6bdfedc75ca0f67acc69e6fb4998143d834f7c2f38a29989680f"
+[[ring.clarify.files]]
+path = "LICENSE-BoringSSL"
+license = "Apache-2.0"
+checksum = "005fc765ddc5115da796cca915baa9557abae13ff35e0a47c47affc56f6c414d"
+[[ring.clarify.files]]
+path = "third_party/fiat/LICENSE"
+license = "Apache-2.0"
+checksum = "9eacbcb81be660840c714a560a9d65ba07913db98dd4baf969f78dd499fdd60f"
+[[ring.clarify.files]]
+path = "src/polyfill/once_cell/LICENSE-MIT"
+license = "MIT"
+checksum = "6ee2ed6c77710de911761acd5fc1ad1da00f476beb1a7ef27e78c2d1858deafc"
+
+# liblzma-sys statically links the bundled xz liblzma, which is 0BSD.
+[liblzma-sys.clarify]
+license = "(MIT OR Apache-2.0) AND 0BSD"
+[[liblzma-sys.clarify.files]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "a90e2da47bdc152cfb89e1fb09972143056c417ddbf86122babc83d0a8ad81d1"
+[[liblzma-sys.clarify.files]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
+[[liblzma-sys.clarify.files]]
+path = "xz/COPYING.0BSD"
+license = "0BSD"
+checksum = "0b01625d853911cd0e2e088dcfb743261034a091bb379246cb25a14cc4c74bf1"
+
+# BSD-3-Clause followed by a Go Authors BSD notice, below the match threshold.
+[curve25519-dalek.clarify]
+license = "BSD-3-Clause"
+[[curve25519-dalek.clarify.files]]
+path = "LICENSE"
+license = "BSD-3-Clause"
+checksum = "cca0bd3c4fcdba74145ef9d49c62337e2c9fbf9368288f11d0547f1b0273219f"
+
+# The published crates have no license file: fetch it from the crate's commit.
+[yasna.clarify]
+license = "MIT OR Apache-2.0"
+[[yasna.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "2a7df90e60fd5512b8bca35d3ce90e068f21c52d962855053fd1d9e2e7ca0f16"
+
+[xml-rs.clarify]
+license = "MIT"
+[[xml-rs.clarify.git]]
+path = "LICENSE"
+license = "MIT"
+checksum = "0dc18d924dc0a5f41172a393012843a5eaaef338e795b3645da9cc3b6068220b"
+
+# Below the match threshold: the license file adds a preamble around the text.
+[chrono.clarify]
+license = "MIT OR Apache-2.0"
+[[chrono.clarify.files]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "946c9835d8034d24404f8cfec5f4654cee5dad17e944afc3d06d742cf2882831"
+
+[libm.clarify]
+license = "MIT"
+[[libm.clarify.files]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"
