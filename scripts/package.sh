@@ -60,7 +60,8 @@ checksum_dir() {
   )
 }
 
-# Fails unless <archive> holds exactly ARCHIVE_FILES.
+# Fails unless <archive> holds exactly ARCHIVE_FILES. Build mode only: latest
+# mode must not need tar (the release-s3 image has none).
 check_archive() {
   local listing expected
   listing="$(tar -tzf "$1" | sort)"
@@ -142,7 +143,6 @@ latest_mode() {
       exit 1
     fi
     src="${matches[0]}"
-    check_archive "$src"
 
     dest="macos-code-signer_darwin_${arch}.tar.gz"
     cp "$src" "$outdir/$dest"
