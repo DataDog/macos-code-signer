@@ -82,6 +82,15 @@ shellcheck:
     - shellcheck --version
     - find scripts -type f -name '*.sh' -exec shellcheck {} +
 
+# Fails if COPYING (third-party license notices, shipped in the release
+# tarballs) is stale relative to Cargo.lock or its generator inputs.
+copying:
+  extends: .linux
+  stage: lint
+  cache: []
+  script:
+    - scripts/gen-copying.sh --check
+
 # Only runs on release tags: enforces that the tag matches Cargo.toml's
 # version before build-macos and package run with it (and, via stage
 # order, before release-s3).

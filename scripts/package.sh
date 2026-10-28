@@ -11,7 +11,8 @@
 # though the binaries themselves are macOS-only):
 #   package.sh <version> <output-dir>
 # Builds macos-code-signer_<version>_darwin_{arm64,amd64,universal}.tar.gz
-# (binary + README.md) and a matching SHA256SUMS in <output-dir>. <version>
+# (binary, README.md, LICENSE, NOTICE and COPYING, the third-party license
+# notices) and a matching SHA256SUMS in <output-dir>. <version>
 # has no leading "v" (e.g. "0.1.0" or "0.1.0-abc1234"). Expects
 # target/<triple>/release/macos-code-signer to already exist for
 # aarch64-apple-darwin, x86_64-apple-darwin and universal-apple-darwin.
@@ -26,6 +27,7 @@
 set -euo pipefail
 
 ARCHES=(arm64 amd64 universal)
+ARCHIVE_FILES=(macos-code-signer README.md LICENSE NOTICE COPYING)
 
 usage() {
   echo "Usage: $0 <version> <output-dir>" >&2
@@ -56,6 +58,18 @@ checksum_dir() {
     # shellcheck disable=SC2086 # $tool is a deliberate two-word command
     $tool -- "$@" >SHA256SUMS
   )
+}
+
+# Fails unless <archive> holds exactly ARCHIVE_FILES.
+check_archive() {
+  local listing expected
+  listing="$(tar -tzf "$1" | sort)"
+  expected="$(printf '%s\n' "${ARCHIVE_FILES[@]}" | sort)"
+  if [ "$listing" != "$expected" ]; then
+    echo "unexpected contents in $1:" >&2
+    echo "$listing" >&2
+    exit 1
+  fi
 }
 
 triple_for_arch() {
@@ -95,9 +109,11 @@ build_mode() {
     cp "$bin" "$stage_dir/macos-code-signer"
     chmod +x "$stage_dir/macos-code-signer"
     cp "$repo_root/README.md" "$stage_dir/README.md"
+    cp "$repo_root/LICENSE" "$repo_root/NOTICE" "$repo_root/COPYING" "$stage_dir/"
 
     archive="macos-code-signer_${version}_darwin_${arch}.tar.gz"
-    tar -czf "$outdir/$archive" -C "$stage_dir" macos-code-signer README.md
+    tar -czf "$outdir/$archive" -C "$stage_dir" "${ARCHIVE_FILES[@]}"
+    check_archive "$outdir/$archive"
     echo "wrote $outdir/$archive"
     archives+=("$archive")
   done
@@ -126,6 +142,7 @@ latest_mode() {
       exit 1
     fi
     src="${matches[0]}"
+    check_archive "$src"
 
     dest="macos-code-signer_darwin_${arch}.tar.gz"
     cp "$src" "$outdir/$dest"

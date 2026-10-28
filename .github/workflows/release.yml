@@ -27,6 +27,17 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: scripts/check-release-tag.sh "$GITHUB_REF_NAME"
 
+  # Fails if COPYING (third-party license notices, shipped in the release
+  # tarballs) is stale relative to Cargo.lock or its generator inputs.
+  check-copying:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Rust toolchain
+        run: rustup toolchain install
+      - name: Check COPYING is up to date
+        run: scripts/gen-copying.sh --check
+
   # Builds the unsigned release binaries. No environment, secrets or
   # id-token: build-time code never sees signing material.
   build:
@@ -146,7 +157,7 @@ jobs:
   # only needs tar, so this runs on a Linux runner instead of the scarcer
   # macOS one.
   package:
-    needs: [check-tag, sign, verify-macos]
+    needs: [check-tag, check-copying, sign, verify-macos]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
