@@ -27,6 +27,8 @@ grep darwin_universal SHA256SUMS | shasum -a 256 -c -
 tar xzf macos-code-signer_X.Y.Z_darwin_universal.tar.gz
 ```
 
+Each tarball holds the binary, this README, `LICENSE`, `NOTICE` and `COPYING`, the licenses of the third-party code linked into that binary.
+
 In a GitHub Actions workflow, use the action instead. It downloads the right binary for the runner's architecture, checks it against `SHA256SUMS`, verifies its code signature, Datadog's Team ID, hardened runtime and notarization, and adds it to `PATH`:
 
 ```yaml

@@ -11,7 +11,8 @@
 # though the binaries themselves are macOS-only):
 #   package.sh <version> <output-dir>
 # Builds macos-code-signer_<version>_darwin_{arm64,amd64,universal}.tar.gz
-# (binary + README.md) and a matching SHA256SUMS in <output-dir>. <version>
+# (binary, README.md, LICENSE, NOTICE and COPYING, the third-party license
+# notices for that target: COPYING.<triple>, or COPYING for universal) and a matching SHA256SUMS in <output-dir>. <version>
 # has no leading "v" (e.g. "0.1.0" or "0.1.0-abc1234"). Expects
 # target/<triple>/release/macos-code-signer to already exist for
 # aarch64-apple-darwin, x86_64-apple-darwin and universal-apple-darwin.
@@ -26,6 +27,7 @@
 set -euo pipefail
 
 ARCHES=(arm64 amd64 universal)
+ARCHIVE_FILES=(macos-code-signer README.md LICENSE NOTICE COPYING)
 
 usage() {
   echo "Usage: $0 <version> <output-dir>" >&2
@@ -58,6 +60,19 @@ checksum_dir() {
   )
 }
 
+# Fails unless <archive> holds exactly ARCHIVE_FILES. Build mode only: latest
+# mode must not need tar (the release-s3 image has none).
+check_archive() {
+  local listing expected
+  listing="$(tar -tzf "$1" | sort)"
+  expected="$(printf '%s\n' "${ARCHIVE_FILES[@]}" | sort)"
+  if [ "$listing" != "$expected" ]; then
+    echo "unexpected contents in $1:" >&2
+    echo "$listing" >&2
+    exit 1
+  fi
+}
+
 triple_for_arch() {
   case "$1" in
     arm64) echo "aarch64-apple-darwin" ;;
@@ -79,7 +94,7 @@ build_mode() {
   mkdir -p "$outdir"
   outdir="$(cd "$outdir" && pwd)"
 
-  local arch triple bin stage_dir archive
+  local arch triple bin stage_dir archive copying
   local archives=()
   for arch in "${ARCHES[@]}"; do
     triple="$(triple_for_arch "$arch")"
@@ -95,9 +110,18 @@ build_mode() {
     cp "$bin" "$stage_dir/macos-code-signer"
     chmod +x "$stage_dir/macos-code-signer"
     cp "$repo_root/README.md" "$stage_dir/README.md"
+    cp "$repo_root/LICENSE" "$repo_root/NOTICE" "$stage_dir/"
+    # Per-target notices; the universal binary gets the union (COPYING).
+    if [ "$arch" = universal ]; then
+      copying="$repo_root/COPYING"
+    else
+      copying="$repo_root/COPYING.${triple}"
+    fi
+    cp "$copying" "$stage_dir/COPYING"
 
     archive="macos-code-signer_${version}_darwin_${arch}.tar.gz"
-    tar -czf "$outdir/$archive" -C "$stage_dir" macos-code-signer README.md
+    tar -czf "$outdir/$archive" -C "$stage_dir" "${ARCHIVE_FILES[@]}"
+    check_archive "$outdir/$archive"
     echo "wrote $outdir/$archive"
     archives+=("$archive")
   done
