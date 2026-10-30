@@ -1,0 +1,19 @@
+version: 1
+acknowledgements:
+- id: 74a02d010208be5ce27d5ecf03756349663ac8ad7464eedb995693cb92ebf61e
+  check_id: no_secrets_patterns
+  title: 'Potential secret: Private key header'
+  evidence_pattern: tests/fixtures/test-key.pem — matched pattern 'Private key header'
+  reason: Throwaway self-signed test keys, not trusted by anything, documented in
+    tests/fixtures/README.md.
+  acknowledged_at: '2026-10-30T13:43:29.929284+00:00'
+  acknowledged_by: Kylian Serrania
+- id: dbe53c9fe7a875f1fc315e33cc795b91d4aa3a35d8af196023eb70433847b3b2
+  check_id: no_secrets_patterns
+  title: 'Potential secret: Private key header'
+  evidence_pattern: tests/fixtures/e2e-developer-id-key.pem — matched pattern 'Private
+    key header'
+  reason: Throwaway self-signed test keys, not trusted by anything, documented in
+    tests/fixtures/README.md.
+  acknowledged_at: '2026-10-30T13:43:30.925610+00:00'
+  acknowledged_by: Kylian Serrania
