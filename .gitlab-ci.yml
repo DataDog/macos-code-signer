@@ -21,8 +21,8 @@ variables:
   RELEASE_S3_BUCKET: binaries-ddbuild-io-prod
   # Shared ci-identities job client version and linux-amd64 checksum;
   # per-job variables below pin other platform binaries.
-  CI_IDENTITIES_CLIENT_VERSION: v0.9.1
-  CI_IDENTITIES_CLIENT_SHA256_LINUX_AMD64: ba1e7a2c8d215ca607152987f3f92e361c1ebf63b508c02f71fc9639eff52625
+  CI_IDENTITIES_CLIENT_VERSION: v0.12.1
+  CI_IDENTITIES_CLIENT_SHA256_LINUX_AMD64: 3b64d23048b8d4788974e1244ded3a0a1b986f561ea6da2c77aabad598d0e38e
   # Datadog's Apple Developer Team ID, checked in verify-macos.
   APPLE_DEVELOPER_TEAM_ID: JKFCB4CN7C
 
@@ -173,7 +173,7 @@ sign-macos:
       aud: ci-identities
   variables:
     GIT_STRATEGY: clone
-    CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64: e7fa700d85ad0489effe0895d77350082a9c6bd7fb64a058384d308b6dd3ed5a
+    CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64: 2eddb6176f0493ecd4e38f7bdacc95edcf89e28abb869b2b32881063505d54f1
   script:
     - scripts/check-release-binaries.sh target
     - >-

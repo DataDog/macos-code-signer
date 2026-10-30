@@ -5468,7 +5468,7 @@ Used by:
   Source: https://github.com/tokio-rs/tokio
   Package source: registry+https://github.com/rust-lang/crates.io-index
   Declared license: MIT
-- tokio 1.53.3
+- tokio 1.54.1
   Authors: Tokio Contributors <team@tokio.rs>
   Source: https://github.com/tokio-rs/tokio
   Package source: registry+https://github.com/rust-lang/crates.io-index
