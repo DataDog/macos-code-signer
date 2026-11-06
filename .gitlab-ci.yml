@@ -146,6 +146,10 @@ ci-identity-claims:
     - echo "${CI_IDENTITIES_CLIENT_SHA256_LINUX_AMD64}  ci-identities-ci-job-client" | sha256sum -c -
     - chmod +x ci-identities-ci-job-client
     - ./ci-identities-ci-job-client token-claims
+    - apt-get update -qq
+    - apt-get install -qq -y --no-install-recommends jq
+    # The token goes through a pipe only: never printed or passed as an argument.
+    - set -o pipefail; ./ci-identities-ci-job-client get-token --audience macos-signing-service | scripts/print-token-claims.sh macos-signing-service
 
 # Builds the unsigned release binaries on every pipeline where the macOS
 # rules match. No id_tokens or secrets: build-time code never sees
