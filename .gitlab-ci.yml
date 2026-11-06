@@ -124,6 +124,33 @@ test-macos:
   script:
     - cargo test --locked
 
+# Manual diagnostic: prints the decoded claims of this job's CI Identity
+# token (not the raw token). Not needed by any other job.
+ci-identity-claims:
+  stage: test
+  image: $RUST_IMAGE
+  tags: ["$LINUX_RUNNER_TAG"]
+  needs: []
+  cache: []
+  rules:
+    - when: manual
+      allow_failure: true
+  id_tokens:
+    CI_IDENTITIES_GITLAB_ID_TOKEN:
+      aud: ci-identities
+  script:
+    - >-
+      curl --proto '=https' --tlsv1.2 -sSfL
+      -o ci-identities-ci-job-client
+      "https://binaries.ddbuild.io/ci-identities/ci-identities-ci-job-client/versions/${CI_IDENTITIES_CLIENT_VERSION}/ci-identities-ci-job-client-linux-amd64"
+    - echo "${CI_IDENTITIES_CLIENT_SHA256_LINUX_AMD64}  ci-identities-ci-job-client" | sha256sum -c -
+    - chmod +x ci-identities-ci-job-client
+    - ./ci-identities-ci-job-client token-claims
+    - apt-get update -qq
+    - apt-get install -qq -y --no-install-recommends jq
+    # The token goes through a pipe only: never printed or passed as an argument.
+    - set -o pipefail; ./ci-identities-ci-job-client get-token --audience macos-signing-service | scripts/print-token-claims.sh macos-signing-service
+
 # Builds the unsigned release binaries on every pipeline where the macOS
 # rules match. No id_tokens or secrets: build-time code never sees
 # signing material. sign-macos signs them on trusted refs.
