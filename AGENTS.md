@@ -26,6 +26,7 @@ See `README.md` for usage and the service API.
 - `scripts/check-release-tag.sh`: fails unless a `vX.Y.Z` tag matches `Cargo.toml`'s version. Used by both CI systems before a release build runs.
 - `scripts/cargo-version.sh`: prints `Cargo.toml`'s package version. Shared by `check-release-tag.sh` and both release workflows, so the version is only parsed in one place.
 - `action.yml`: a composite GitHub Action that downloads the released binary for the runner's architecture, checks it against `SHA256SUMS`, verifies it like `verify-macos` does (signature, Datadog's Team ID `JKFCB4CN7C`, hardened runtime, online notarization check), and adds it to `PATH`.
+- `scripts/sign-staging.sh`, `scripts/verify-staging-signature.sh`, `scripts/install-bootstrap-signer.sh`: staging self-signing, see "Staging signing". `tests/staging/` tests them with `unittest`, throwaway certificates, a local HTTPS mock and a stub signer: `python3 -m unittest discover -s tests/staging` (macOS, run by `test-macos`).
 - `tests/e2e.rs`: end-to-end tests that run the built binary against a mock service.
 - `tests/common/`: E2E helpers. `mock_service.rs` is a `wiremock` mock of the service API that signs with the E2E fixture key. `artifacts.rs` builds inputs with `scripts/gen-test-artifacts/` (macOS only).
 - `tests/fixtures/`: throwaway self-signed key pairs. `test-*.pem` for unit tests, `e2e-developer-id-*.pem` (Developer ID-style extensions) for E2E tests. See `tests/fixtures/README.md`.
@@ -55,6 +56,16 @@ On GitLab, `build-macos` and `package` both declare `needs: check-release-tag` (
 
 - GitHub Releases are immutable once published, so `release` creates a draft with `gh release create --draft --verify-tag --generate-notes` and all the release files, then publishes it with `gh release edit --draft=false`. Nothing is ever uploaded to an already-published release.
 - `release-s3` uploads to `s3://${RELEASE_S3_BUCKET}/macos-code-signer/<ver>/` (the versioned files, as packaged) and to `.../latest/` (the same files, copied and re-hashed under fixed, unversioned names with `scripts/package.sh --latest`, so `latest/` only ever holds the current release). It authenticates as the `trusted-jobs` CI Identity: an `id_tokens` block requests a `ci-identities` audience token, a pinned `ci-identities-ci-job-client` build exchanges it for AWS credentials (`assume-role --account-id 486234852809`) written to `AWS_SHARED_CREDENTIALS_FILE`, and that identity's IAM policy only allows `s3:PutObject`/`s3:GetObject` under `macos-code-signer/*` and `s3:ListBucket` with that prefix. There is no delete or ACL call anywhere in the job.
+
+## Staging signing
+
+On branches other than `main`, the binaries are also signed with this tool itself, through macos-signing-service's staging deployment and a self-signed test certificate per CI system. Nothing packages or publishes the result: it's a 1-day artifact. `main` and `v*` tags keep the bootstrap signing above.
+
+- GitHub: `.github/workflows/build.yml` (push to any branch but `main`; never tags). `build`, then `staging-sign`, which installs the v0.2.0 release with `action.yml`, gets a GitHub OIDC token for `macos-signing-service` from the runner's ID token endpoint with `curl` and `jq` (masked, set as a step output) and only passes it to the signing step. Job env values in the workflow: `MACOS_SIGNING_STAGING_URL` (passed to the CLI as `MACOS_SIGNING_SERVICE_URL`), `STAGING_CERT_ID`, `STAGING_CERT_AUTHORITY` (the leaf common name).
+- GitLab: `sign-macos-staging`, after `build-macos`, never on tags or the default branch, otherwise with `build-macos`'s rules. `scripts/install-bootstrap-signer.sh` installs the v0.2.0 universal release from binaries.ddbuild.io against a pinned SHA-256, then checks its signature, Team ID, hardened runtime and notarization. The token comes from `ci-identities-ci-job-client get-token --audience macos-signing-service`, requested last. The same three values are job variables in `.gitlab-ci.yml`.
+- `sign-staging.sh` requires an `https://` base URL without credentials, query, fragment or dot segments, and a certificate ID made of unreserved characters. A preflight GET of the certificate sends the token as a header read from stdin, follows no redirects and reports only the HTTP status. Signing uses the CLI's default RFC 3161 timestamp server.
+- `verify-staging-signature.sh` checks each architecture, including both universal slices: signature, identifier, hardened runtime, leaf common name (not the key, so rotations don't break it), a Team ID other than `JKFCB4CN7C`, then a secure timestamp. No notarization or Gatekeeper check: the certificate is self-signed.
+- Boundary: on a branch, its author controls the workflow and scripts and can use the token. The service must only let these identities reach their own staging test certificate.
 
 ## Testing
 
