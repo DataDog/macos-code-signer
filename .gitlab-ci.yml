@@ -235,29 +235,26 @@ sign-macos-staging:
     MACOS_SIGNING_STAGING_URL: https://webhooks.build.datad0g.com
     STAGING_CERT_ID: macos-code-signer-gitlab-application-certificate
     STAGING_CERT_AUTHORITY: "Developer ID Application: macos-code-signer Gitlab Staging Application Cert (unset)"
+  # Run staging commands in Bash and explicitly propagate any failure.
+  # Disable tracing before acquiring the token.
   script:
     - |
-      for var in MACOS_SIGNING_STAGING_URL STAGING_CERT_ID STAGING_CERT_AUTHORITY; do
-        if [ -z "${!var:-}" ]; then echo "error: $var is not set" >&2; exit 1; fi
-      done
-    - scripts/check-release-binaries.sh target
-    - scripts/install-bootstrap-signer.sh "$MACOS_CODE_SIGNER_BOOTSTRAP_VERSION" "$MACOS_CODE_SIGNER_BOOTSTRAP_SHA256_UNIVERSAL" bootstrap
-    - >-
-      curl --proto '=https' --tlsv1.2 -sSfL
-      -o ci-identities-ci-job-client
-      "https://binaries.ddbuild.io/ci-identities/ci-identities-ci-job-client/versions/${CI_IDENTITIES_CLIENT_VERSION}/ci-identities-ci-job-client-darwin-arm64"
-    - echo "${CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64}  ci-identities-ci-job-client" | shasum -a 256 -c -
-    - chmod +x ci-identities-ci-job-client
-    # Tracing off before the token exists or is expanded.
-    - |
+      bash -euo pipefail <<'EOF' || exit 1
       set +x
+      scripts/check-release-binaries.sh target
+      scripts/install-bootstrap-signer.sh "$MACOS_CODE_SIGNER_BOOTSTRAP_VERSION" "$MACOS_CODE_SIGNER_BOOTSTRAP_SHA256_UNIVERSAL" bootstrap
+      curl --proto '=https' --tlsv1.2 -sSfL -o ci-identities-ci-job-client \
+        "https://binaries.ddbuild.io/ci-identities/ci-identities-ci-job-client/versions/${CI_IDENTITIES_CLIENT_VERSION}/ci-identities-ci-job-client-darwin-arm64"
+      echo "${CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64}  ci-identities-ci-job-client" | shasum -a 256 -c -
+      chmod +x ci-identities-ci-job-client
       token="$(./ci-identities-ci-job-client get-token --audience macos-signing-service)"
       MACOS_SIGNING_SERVICE_TOKEN="$token" \
         MACOS_SIGNING_SERVICE_URL="$MACOS_SIGNING_STAGING_URL" \
         MACOS_CODE_SIGNER="$PWD/bootstrap/macos-code-signer" \
         scripts/sign-staging.sh target staging-signed
       unset token
-    - scripts/verify-staging-signature.sh staging-signed
+      scripts/verify-staging-signature.sh staging-signed
+      EOF
   artifacts:
     expire_in: 1 day
     paths:
