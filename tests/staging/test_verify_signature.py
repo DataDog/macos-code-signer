@@ -2,12 +2,13 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/).
 # Copyright 2026-Present Datadog, Inc.
 
-"""Tests for scripts/verify-staging-signature.sh.
+"""Tests for scripts/verify-signature.sh.
 
-Fixtures are signed without a secure timestamp (no time-stamp server is
-available locally), so even a correctly signed tree fails the final
-timestamp check. Tests assert that every slice passed the identity checks
-first. A fully passing run is not covered.
+Fixtures are self-signed and signed without a secure timestamp (no
+time-stamp server is available locally), so even a correctly signed
+staging tree fails the final timestamp check. Tests assert that every
+slice passed the identity checks first. A fully passing run, and the
+production checks passing on an Apple-issued certificate, are not covered.
 """
 
 import shutil
@@ -17,23 +18,25 @@ from pathlib import Path
 
 from fixtures import BINARY, SCRIPTS, SLICES, STAGING_CN, Toolchain, make_certificate, run
 
-VERIFY = SCRIPTS / "verify-staging-signature.sh"
+VERIFY = SCRIPTS / "verify-signature.sh"
+DATADOG_TEAM_ID = "JKFCB4CN7C"
 
 
 def setUpModule():
-    global work, toolchain, staging, rotated, other_cn
+    global work, toolchain, staging, rotated, other_cn, spoofed
     work = Path(tempfile.mkdtemp())
     toolchain = Toolchain(work)
     staging = make_certificate(work, "staging", STAGING_CN)
     rotated = make_certificate(work, "rotated", STAGING_CN)
     other_cn = make_certificate(work, "other-cn", "Other Test Signer")
+    spoofed = make_certificate(work, "spoofed", STAGING_CN, organizational_unit=DATADOG_TEAM_ID)
 
 
 def tearDownModule():
     shutil.rmtree(work)
 
 
-class VerifyStagingSignatureTest(unittest.TestCase):
+class VerifySignatureTest(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp(dir=work))
 
@@ -47,8 +50,9 @@ class VerifyStagingSignatureTest(unittest.TestCase):
             universal_x86_64=universal_x86_64 or staging,
         )
 
-    def verify(self, tree, authority=STAGING_CN):
-        return run([VERIFY, tree], {"STAGING_CERT_AUTHORITY": authority})
+    def verify(self, tree, environment="staging", authority=STAGING_CN):
+        env = {"MACOS_SIGNING_ENVIRONMENT": environment, "MACOS_SIGNING_CERT_AUTHORITY": authority}
+        return run([VERIFY, tree], {key: value for key, value in env.items() if value is not None})
 
     def assert_fails_with(self, result, message):
         output = result.stdout + result.stderr
@@ -81,7 +85,7 @@ class VerifyStagingSignatureTest(unittest.TestCase):
 
     def test_datadog_team_id_is_rejected(self):
         tree = self.tree()
-        toolchain.sign(staging, "arm64", tree / "aarch64-apple-darwin" / BINARY, team_id="JKFCB4CN7C")
+        toolchain.sign(staging, "arm64", tree / "aarch64-apple-darwin" / BINARY, team_id=DATADOG_TEAM_ID)
         result = self.verify(tree)
         self.assert_fails_with(result, "(arm64): signed with Datadog's Team ID")
 
@@ -111,9 +115,32 @@ class VerifyStagingSignatureTest(unittest.TestCase):
         result = self.verify(tree)
         self.assert_fails_with(result, "unexpected files")
 
-    def test_unset_authority_is_rejected(self):
-        result = run([VERIFY, self.tree()])
-        self.assert_fails_with(result, "STAGING_CERT_AUTHORITY must be set")
+    def test_unset_authority_is_rejected_for_staging(self):
+        result = self.verify(self.tree(), authority=None)
+        self.assert_fails_with(result, "MACOS_SIGNING_CERT_AUTHORITY must be set for staging")
+
+    def test_missing_or_unknown_environment_is_rejected(self):
+        for environment in [None, "", "prod", "Production"]:
+            with self.subTest(environment):
+                result = self.verify(self.tree(), environment=environment)
+                self.assert_fails_with(result, "MACOS_SIGNING_ENVIRONMENT must be staging or production")
+
+    def test_production_rejects_another_team_id(self):
+        result = self.verify(self.tree(), environment="production", authority=None)
+        self.assert_fails_with(result, f"aarch64-apple-darwin/{BINARY} (arm64): not signed with Datadog's Team ID")
+
+    def test_production_rejects_a_self_signed_certificate_with_datadog_team_id(self):
+        tree = self.tree(aarch64=spoofed)
+        toolchain.sign(spoofed, "arm64", tree / "aarch64-apple-darwin" / BINARY, team_id=DATADOG_TEAM_ID)
+        result = self.verify(tree, environment="production", authority=None)
+        self.assert_fails_with(
+            result,
+            f"aarch64-apple-darwin/{BINARY} (arm64): not signed with an Apple-issued Developer ID certificate",
+        )
+
+    def test_production_checks_the_authority_when_set(self):
+        result = self.verify(self.tree(), environment="production", authority="Other Test Signer")
+        self.assert_fails_with(result, f"aarch64-apple-darwin/{BINARY} (arm64): leaf authority is not Other Test Signer")
 
 
 if __name__ == "__main__":

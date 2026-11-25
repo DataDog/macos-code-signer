@@ -3,7 +3,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/).
 # Copyright 2026-Present Datadog, Inc.
 
-"""Stands in for macos-code-signer in sign-staging.sh tests.
+"""Stands in for macos-code-signer in sign.sh tests.
 
 Appends its arguments, and whether it received EXPECTED_TOKEN as
 MACOS_SIGNING_SERVICE_TOKEN, to STUB_LOG as one JSON line, then copies its

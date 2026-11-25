@@ -2,7 +2,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/).
 # Copyright 2026-Present Datadog, Inc.
 
-"""Throwaway fixtures for the staging signing script tests.
+"""Throwaway fixtures for the signing script tests.
 
 Everything is created under a temporary directory: self-signed
 certificates, small Mach-O binaries signed with rcodesign, a local HTTPS
@@ -63,13 +63,13 @@ class Certificate:
     cert: Path
 
 
-def make_certificate(directory, name, common_name):
+def make_certificate(directory, name, common_name, organizational_unit="STAGINGTEST"):
     """Creates a self-signed code signing certificate and its key."""
     key, cert = directory / f"{name}-key.pem", directory / f"{name}-cert.pem"
     run_checked([
         "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-sha256", "-days", "2",
         "-keyout", key, "-out", cert,
-        "-subj", f"/CN={common_name}/OU=STAGINGTEST/O=Example/C=US",
+        "-subj", f"/CN={common_name}/OU={organizational_unit}/O=Example/C=US",
         "-addext", "basicConstraints=critical,CA:FALSE",
         "-addext", "keyUsage=critical,digitalSignature",
         "-addext", "extendedKeyUsage=critical,codeSigning",

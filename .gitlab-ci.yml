@@ -63,8 +63,9 @@ variables:
           - scripts/gen-test-artifacts/**/*
           - scripts/check-release-binaries.sh
           - scripts/install-bootstrap-signer.sh
-          - scripts/sign-staging.sh
-          - scripts/verify-staging-signature.sh
+          - scripts/install-rcodesign.sh
+          - scripts/sign.sh
+          - scripts/verify-signature.sh
           - src/**/*
           - tests/**/*
         compare_to: refs/heads/main
@@ -212,7 +213,7 @@ sign-macos:
 # on branches other than the default one, using the released bootstrap
 # signer. Nothing packages or publishes the result. Fresh clone, no cache
 # or toolchain. The token is requested last, right before signing, and is
-# only in sign-staging.sh's environment.
+# only in sign.sh's environment.
 sign-macos-staging:
   stage: sign
   image: $MACOS_IMAGE
@@ -232,9 +233,10 @@ sign-macos-staging:
     CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64: 2eddb6176f0493ecd4e38f7bdacc95edcf89e28abb869b2b32881063505d54f1
     MACOS_CODE_SIGNER_BOOTSTRAP_VERSION: "0.2.0"
     MACOS_CODE_SIGNER_BOOTSTRAP_SHA256_UNIVERSAL: 1521b43d8b5cbad63208253fa123c41b5f2498e8c177eb12d79ca4783cd91b09
-    MACOS_SIGNING_STAGING_URL: https://webhooks.build.datad0g.com
-    STAGING_CERT_ID: macos-code-signer-gitlab-application-certificate
-    STAGING_CERT_AUTHORITY: "Developer ID Application: macos-code-signer Gitlab Staging Application Cert (unset)"
+    MACOS_SIGNING_ENVIRONMENT: staging
+    MACOS_SIGNING_SERVICE_URL: https://webhooks.build.datad0g.com
+    MACOS_SIGNING_CERT_ID: macos-code-signer-gitlab-application-certificate
+    MACOS_SIGNING_CERT_AUTHORITY: "Developer ID Application: macos-code-signer Gitlab Staging Application Cert (unset)"
   # Run staging commands in Bash and explicitly propagate any failure.
   # Disable tracing before acquiring the token.
   script:
@@ -249,11 +251,10 @@ sign-macos-staging:
       chmod +x ci-identities-ci-job-client
       token="$(./ci-identities-ci-job-client get-token --audience macos-signing-service)"
       MACOS_SIGNING_SERVICE_TOKEN="$token" \
-        MACOS_SIGNING_SERVICE_URL="$MACOS_SIGNING_STAGING_URL" \
         MACOS_CODE_SIGNER="$PWD/bootstrap/macos-code-signer" \
-        scripts/sign-staging.sh target staging-signed
+        scripts/sign.sh target staging-signed
       unset token
-      scripts/verify-staging-signature.sh staging-signed
+      scripts/verify-signature.sh staging-signed
       EOF
   artifacts:
     expire_in: 1 day
