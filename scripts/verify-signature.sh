@@ -84,8 +84,12 @@ check_slice() {
 }
 
 # Last, so the checks above are reached even when signed without a timestamp.
+# Captured first: with pipefail, grep -q closing the pipe early can make
+# codesign fail with SIGPIPE.
 check_timestamp() {
-  codesign -dvvv --arch "$2" "$1" 2>&1 | grep -q '^Timestamp=' ||
+  local info
+  info="$(codesign -dvvv --arch "$2" "$1" 2>&1)"
+  grep -q '^Timestamp=' <<<"$info" ||
     fail "$1 ($2): no secure timestamp"
 }
 
