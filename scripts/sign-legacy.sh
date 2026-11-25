@@ -4,7 +4,8 @@
 # Copyright 2026-Present Datadog, Inc.
 
 # Signs release binaries in place with rcodesign and a Developer ID
-# Application .p12 certificate.
+# Application .p12 certificate. Only used by GitHub Actions, whose
+# certificate is not in the signing service yet.
 #
 # Usage: sign-legacy.sh <binary>...
 #

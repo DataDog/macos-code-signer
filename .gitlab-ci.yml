@@ -159,72 +159,19 @@ build-macos:
     paths:
       - target/*-apple-darwin/release/macos-code-signer
 
-# Signs build-macos's binaries. Default branch or a v* tag only: that's
-# the only scope where the Vault secrets are reachable. Doesn't extend
-# .macos: no cache, no Rust toolchain, a fresh clone, and only the
-# signing scripts run. Tag-version gating comes through build-macos's
-# check-release-tag need. MACOS_RUNNER_TAG is Apple Silicon, hence the
-# darwin-arm64 client.
-sign-macos:
+# Signs build-macos's binaries through macos-signing-service with the
+# pinned bootstrap release. Fresh clone, no cache or toolchain: only the
+# signing scripts run. The token is requested last, right before signing,
+# and is only in sign.sh's environment. MACOS_RUNNER_TAG is Apple Silicon,
+# hence the darwin-arm64 client. The signed binaries replace the unsigned
+# ones under target/, in the same layout.
+.sign-macos-service:
   stage: sign
   image: $MACOS_IMAGE
   tags: ["$MACOS_RUNNER_TAG"]
   cache: []
   needs:
     - build-macos
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG =~ /^v/
-  id_tokens:
-    CI_IDENTITIES_GITLAB_ID_TOKEN:
-      aud: ci-identities
-  variables:
-    GIT_STRATEGY: clone
-    CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64: 2eddb6176f0493ecd4e38f7bdacc95edcf89e28abb869b2b32881063505d54f1
-  script:
-    - scripts/check-release-binaries.sh target
-    - >-
-      curl --proto '=https' --tlsv1.2 -sSfL
-      -o ci-identities-ci-job-client
-      "https://binaries.ddbuild.io/ci-identities/ci-identities-ci-job-client/versions/${CI_IDENTITIES_CLIENT_VERSION}/ci-identities-ci-job-client-darwin-arm64"
-    - echo "${CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64}  ci-identities-ci-job-client" | shasum -a 256 -c -
-    - chmod +x ci-identities-ci-job-client
-    - |
-      p12_b64="$(./ci-identities-ci-job-client secrets read apple-application-signing certificate)"
-      p12_password="$(./ci-identities-ci-job-client secrets read apple-application-signing passphrase)"
-      export APPLE_DEVELOPER_ID_APPLICATION_P12="$p12_b64"
-      export APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD="$p12_password"
-      # Literal paths, no glob or word splitting: the runner shell
-      # passed the list as a single argument.
-      scripts/sign-legacy.sh \
-        target/aarch64-apple-darwin/release/macos-code-signer \
-        target/x86_64-apple-darwin/release/macos-code-signer \
-        target/universal-apple-darwin/release/macos-code-signer
-      for triple in aarch64 x86_64 universal; do
-        codesign --verify --strict --verbose=2 "target/${triple}-apple-darwin/release/macos-code-signer"
-      done
-  artifacts:
-    expire_in: 1 week
-    paths:
-      - target/aarch64-apple-darwin/release/macos-code-signer
-      - target/x86_64-apple-darwin/release/macos-code-signer
-      - target/universal-apple-darwin/release/macos-code-signer
-
-# Signs build-macos's binaries with the GitLab staging test certificate,
-# on branches other than the default one, using the released bootstrap
-# signer. Nothing packages or publishes the result. Fresh clone, no cache
-# or toolchain. The token is requested last, right before signing, and is
-# only in sign.sh's environment.
-sign-macos-staging:
-  stage: sign
-  image: $MACOS_IMAGE
-  tags: ["$MACOS_RUNNER_TAG"]
-  cache: []
-  needs:
-    - build-macos
-  rules:
-    - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      when: never
-    - !reference [.macos, rules]
   id_tokens:
     CI_IDENTITIES_GITLAB_ID_TOKEN:
       aud: ci-identities
@@ -233,17 +180,14 @@ sign-macos-staging:
     CI_IDENTITIES_CLIENT_SHA256_DARWIN_ARM64: 2eddb6176f0493ecd4e38f7bdacc95edcf89e28abb869b2b32881063505d54f1
     MACOS_CODE_SIGNER_BOOTSTRAP_VERSION: "0.2.0"
     MACOS_CODE_SIGNER_BOOTSTRAP_SHA256_UNIVERSAL: 1521b43d8b5cbad63208253fa123c41b5f2498e8c177eb12d79ca4783cd91b09
-    MACOS_SIGNING_ENVIRONMENT: staging
-    MACOS_SIGNING_SERVICE_URL: https://webhooks.build.datad0g.com
-    MACOS_SIGNING_CERT_ID: macos-code-signer-gitlab-application-certificate
-    MACOS_SIGNING_CERT_AUTHORITY: "Developer ID Application: macos-code-signer Gitlab Staging Application Cert (unset)"
-  # Run staging commands in Bash and explicitly propagate any failure.
+  # Run the commands in Bash and explicitly propagate any failure.
   # Disable tracing before acquiring the token.
   script:
     - |
       bash -euo pipefail <<'EOF' || exit 1
       set +x
       scripts/check-release-binaries.sh target
+      mv target unsigned
       scripts/install-bootstrap-signer.sh "$MACOS_CODE_SIGNER_BOOTSTRAP_VERSION" "$MACOS_CODE_SIGNER_BOOTSTRAP_SHA256_UNIVERSAL" bootstrap
       curl --proto '=https' --tlsv1.2 -sSfL -o ci-identities-ci-job-client \
         "https://binaries.ddbuild.io/ci-identities/ci-identities-ci-job-client/versions/${CI_IDENTITIES_CLIENT_VERSION}/ci-identities-ci-job-client-darwin-arm64"
@@ -252,18 +196,54 @@ sign-macos-staging:
       token="$(./ci-identities-ci-job-client get-token --audience macos-signing-service)"
       MACOS_SIGNING_SERVICE_TOKEN="$token" \
         MACOS_CODE_SIGNER="$PWD/bootstrap/macos-code-signer" \
-        scripts/sign.sh target staging-signed
+        scripts/sign.sh unsigned target
       unset token
-      scripts/verify-signature.sh staging-signed
+      scripts/verify-signature.sh target
       EOF
+
+# Signs build-macos's binaries with the [I] production certificate, as
+# the trusted-jobs CI Identity. Default branch or a v* tag only.
+# Tag-version gating comes through build-macos's check-release-tag need.
+sign-macos:
+  extends: .sign-macos-service
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_COMMIT_TAG =~ /^v/
+  variables:
+    MACOS_SIGNING_ENVIRONMENT: production
+    MACOS_SIGNING_SERVICE_URL: https://webhooks.build.datadoghq.com
+    MACOS_SIGNING_CERT_ID: prod-i-application-certificate
+  artifacts:
+    expire_in: 1 week
+    paths:
+      - target/aarch64-apple-darwin/release/macos-code-signer
+      - target/x86_64-apple-darwin/release/macos-code-signer
+      - target/universal-apple-darwin/release/macos-code-signer
+
+# Signs build-macos's binaries with the GitLab staging test certificate,
+# on branches other than the default one. Nothing packages or publishes
+# the result.
+sign-macos-staging:
+  extends: .sign-macos-service
+  rules:
+    - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: never
+    - !reference [.macos, rules]
+  variables:
+    MACOS_SIGNING_ENVIRONMENT: staging
+    MACOS_SIGNING_SERVICE_URL: https://webhooks.build.datad0g.com
+    MACOS_SIGNING_CERT_ID: macos-code-signer-gitlab-application-certificate
+    MACOS_SIGNING_CERT_AUTHORITY: "Developer ID Application: macos-code-signer Gitlab Staging Application Cert (unset)"
   artifacts:
     expire_in: 1 day
     paths:
-      - staging-signed/
+      - target/aarch64-apple-darwin/release/macos-code-signer
+      - target/x86_64-apple-darwin/release/macos-code-signer
+      - target/universal-apple-darwin/release/macos-code-signer
 
 # Submits the signed binaries for notarization and waits. Runs on Linux
 # so --wait doesn't tie up a scarce macOS runner. Default branch or a
-# v* tag only, same scope as sign-macos.
+# v* tag only, same scope as sign-macos. The only job that reads a Vault
+# secret: the App Store Connect API key.
 notarize:
   stage: notarize
   image: $RUST_IMAGE
