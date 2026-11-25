@@ -194,7 +194,7 @@ sign-macos:
       export APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD="$p12_password"
       # Literal paths, no glob or word splitting: the runner shell
       # passed the list as a single argument.
-      scripts/sign-legacy.sh sign \
+      scripts/sign-legacy.sh \
         target/aarch64-apple-darwin/release/macos-code-signer \
         target/x86_64-apple-darwin/release/macos-code-signer \
         target/universal-apple-darwin/release/macos-code-signer
@@ -285,7 +285,7 @@ notarize:
     - chmod +x ci-identities-ci-job-client
     - connect_api_json="$(./ci-identities-ci-job-client secrets read apple-connect-api-key json)"; export APPLE_APP_STORE_CONNECT_API_DATA="$connect_api_json"
     - >-
-      scripts/sign-legacy.sh notarize
+      scripts/notarize.sh
       target/aarch64-apple-darwin/release/macos-code-signer
       target/x86_64-apple-darwin/release/macos-code-signer
       target/universal-apple-darwin/release/macos-code-signer
