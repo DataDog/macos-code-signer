@@ -122,6 +122,12 @@ scripts/gen-test-artifacts/generate-test-pkg.sh --output test.pkg
 
 Sign the `.pkg` with an `installer` certificate and the others with an `application` certificate. Pass `--unsigned` to the Mach-O and `.app` scripts to skip the ad-hoc signature. Run a script with `--help` for its options.
 
+The CI signing scripts (`scripts/sign.sh`, `scripts/verify-signature.sh`) have their own tests, with throwaway certificates and a local mock of the service (macOS only):
+
+```
+python3 -m unittest discover -s tests/staging
+```
+
 `tests/fixtures/` holds the throwaway self-signed key pairs used by the tests. See [`tests/fixtures/README.md`](tests/fixtures/README.md).
 
 ## Contributing

@@ -2,7 +2,7 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/).
 # Copyright 2026-Present Datadog, Inc.
 
-"""Tests for scripts/sign-staging.sh, against a local HTTPS mock of the
+"""Tests for scripts/sign.sh, against a local HTTPS mock of the
 signing service and a stub signer. No real token or service is used."""
 
 import shutil
@@ -14,7 +14,7 @@ from pathlib import Path
 from fixtures import (BINARY, SCRIPTS, STUB_SIGNER, MockSigningService, Toolchain, read_stub_calls,
                       run)
 
-SIGN = SCRIPTS / "sign-staging.sh"
+SIGN = SCRIPTS / "sign.sh"
 TOKEN = "synthetic-token-7f3c"
 TARGETS = ["aarch64-apple-darwin", "x86_64-apple-darwin", "universal-apple-darwin"]
 
@@ -39,7 +39,7 @@ def closed_port_url():
     return f"https://127.0.0.1:{port}"
 
 
-class SignStagingTest(unittest.TestCase):
+class SignTest(unittest.TestCase):
     def setUp(self):
         self.dir = Path(tempfile.mkdtemp(dir=work))
         self.out = self.dir / "signed"
@@ -51,7 +51,7 @@ class SignStagingTest(unittest.TestCase):
         env = {
             "MACOS_CODE_SIGNER": str(STUB_SIGNER),
             "MACOS_SIGNING_SERVICE_URL": service.url,
-            "STAGING_CERT_ID": "ok",
+            "MACOS_SIGNING_CERT_ID": "ok",
             "MACOS_SIGNING_SERVICE_TOKEN": TOKEN,
             "CURL_CA_BUNDLE": str(service.ca_bundle),
             "STUB_LOG": str(self.stub_log),
@@ -77,7 +77,7 @@ class SignStagingTest(unittest.TestCase):
         self.assertFalse(TOKEN in result.stdout + result.stderr, "token printed")
 
     def test_each_variable_is_required(self):
-        for name in ["MACOS_CODE_SIGNER", "MACOS_SIGNING_SERVICE_URL", "STAGING_CERT_ID",
+        for name in ["MACOS_CODE_SIGNER", "MACOS_SIGNING_SERVICE_URL", "MACOS_SIGNING_CERT_ID",
                      "MACOS_SIGNING_SERVICE_TOKEN"]:
             with self.subTest(name):
                 self.assert_fails_with(self.sign(**{name: ""}), f"{name} must be set")
@@ -101,8 +101,8 @@ class SignStagingTest(unittest.TestCase):
     def test_unsafe_cert_ids_are_rejected_without_a_request(self):
         for cert_id in [".", "..", "../ok", "a/b", "a%2fb", "a?b", "a#b", "-x", "a b"]:
             with self.subTest(cert_id):
-                result = self.sign(STAGING_CERT_ID=cert_id)
-                self.assert_fails_with(result, "STAGING_CERT_ID must only contain")
+                result = self.sign(MACOS_SIGNING_CERT_ID=cert_id)
+                self.assert_fails_with(result, "MACOS_SIGNING_CERT_ID must only contain")
                 self.assertEqual(service.requests, [])
 
     def test_unexpected_input_layout_is_rejected_without_a_request(self):
@@ -113,10 +113,10 @@ class SignStagingTest(unittest.TestCase):
 
     def test_denied_token_reports_only_the_status(self):
         # The mock echoes the Authorization header in the 401 body.
-        self.assert_fails_with(self.sign(STAGING_CERT_ID="denied"), "returned HTTP 401")
+        self.assert_fails_with(self.sign(MACOS_SIGNING_CERT_ID="denied"), "returned HTTP 401")
 
     def test_redirect_is_not_followed(self):
-        self.assert_fails_with(self.sign(STAGING_CERT_ID="redirect"), "returned HTTP 302")
+        self.assert_fails_with(self.sign(MACOS_SIGNING_CERT_ID="redirect"), "returned HTTP 302")
         self.assertEqual([request.path for request in service.requests],
                          ["/signer/macos/certificates/redirect"])
 

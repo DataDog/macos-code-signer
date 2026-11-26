@@ -3,14 +3,14 @@
 # This product includes software developed at Datadog (https://www.datadoghq.com/).
 # Copyright 2026-Present Datadog, Inc.
 
-# Signs the three release binaries in <in-dir> with a staging test
-# certificate held by macos-signing-service, writing them under <out-dir>
-# with the same layout. Uses the CLI's default RFC 3161 timestamp server.
+# Signs the three release binaries in <in-dir> with a certificate held by
+# macos-signing-service, writing them under <out-dir> with the same
+# layout. Uses the CLI's default RFC 3161 timestamp server.
 #
 # Environment (all required):
 #   MACOS_CODE_SIGNER            path to the bootstrap macos-code-signer binary
 #   MACOS_SIGNING_SERVICE_URL    HTTPS base URL of the service
-#   STAGING_CERT_ID              certificate ID to sign with
+#   MACOS_SIGNING_CERT_ID        certificate ID to sign with
 #   MACOS_SIGNING_SERVICE_TOKEN  OIDC token for the service
 #
 # Before signing, a preflight GET of the certificate checks the URL, the
@@ -27,7 +27,7 @@ fi
 in_dir="${1%/}"
 out_dir="${2%/}"
 
-for var in MACOS_CODE_SIGNER MACOS_SIGNING_SERVICE_URL STAGING_CERT_ID MACOS_SIGNING_SERVICE_TOKEN; do
+for var in MACOS_CODE_SIGNER MACOS_SIGNING_SERVICE_URL MACOS_SIGNING_CERT_ID MACOS_SIGNING_SERVICE_TOKEN; do
   if [ -z "${!var:-}" ]; then
     echo "error: $var must be set" >&2
     exit 1
@@ -49,8 +49,8 @@ while [ "${base_url%/}" != "$base_url" ]; do base_url="${base_url%/}"; done
 
 # Unreserved characters only, so the ID is the same single path segment
 # here and in the CLI. A leading alphanumeric rules out . and ..
-if ! [[ "$STAGING_CERT_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
-  echo "error: STAGING_CERT_ID must only contain letters, digits, '.', '_' and '-', starting with a letter or digit" >&2
+if ! [[ "$MACOS_SIGNING_CERT_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "error: MACOS_SIGNING_CERT_ID must only contain letters, digits, '.', '_' and '-', starting with a letter or digit" >&2
   exit 1
 fi
 
@@ -60,7 +60,7 @@ curl_status=0
 http_code="$(printf 'Authorization: Bearer %s\n' "$MACOS_SIGNING_SERVICE_TOKEN" |
   curl --proto '=https' --tlsv1.2 --max-redirs 0 --connect-timeout 10 --max-time 30 \
     -s -o /dev/null -w '%{http_code}' -H @- \
-    "${base_url}/signer/macos/certificates/${STAGING_CERT_ID}" 2>/dev/null)" || curl_status=$?
+    "${base_url}/signer/macos/certificates/${MACOS_SIGNING_CERT_ID}" 2>/dev/null)" || curl_status=$?
 if [ "$curl_status" -ne 0 ]; then
   echo "error: preflight request to the signing service failed (curl exit $curl_status)" >&2
   exit 1
@@ -76,7 +76,7 @@ for triple in aarch64 x86_64 universal; do
   rel="${triple}-apple-darwin/release/macos-code-signer"
   mkdir -p "$(dirname "$out_dir/$rel")"
   echo "signing $rel"
-  "$MACOS_CODE_SIGNER" --cert-id "$STAGING_CERT_ID" sign \
+  "$MACOS_CODE_SIGNER" --cert-id "$MACOS_SIGNING_CERT_ID" sign \
     --identifier com.datadoghq.macos-code-signer \
     --code-signature-flags runtime \
     "$in_dir/$rel" "$out_dir/$rel"

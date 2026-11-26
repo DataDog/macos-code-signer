@@ -98,7 +98,7 @@ jobs:
           APPLE_DEVELOPER_ID_APPLICATION_P12: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12 }}
           APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_P12_PASSWORD }}
         run: |
-          scripts/sign-legacy.sh sign \
+          scripts/sign-legacy.sh \
             target/aarch64-apple-darwin/release/macos-code-signer \
             target/x86_64-apple-darwin/release/macos-code-signer \
             target/universal-apple-darwin/release/macos-code-signer
@@ -133,7 +133,7 @@ jobs:
       - name: Notarize binaries
         env:
           APPLE_APP_STORE_CONNECT_API_DATA: ${{ secrets.APPLE_APP_STORE_CONNECT_API_DATA }}
-        run: scripts/sign-legacy.sh notarize target/*-apple-darwin/release/macos-code-signer
+        run: scripts/notarize.sh target/*-apple-darwin/release/macos-code-signer
 
   # Final signature and notarization check, on a real macOS Gatekeeper.
   # sign produces the artifact; notarize is needed for ordering.

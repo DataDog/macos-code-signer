@@ -4,8 +4,8 @@
 # Copyright 2026-Present Datadog, Inc.
 
 # Installs a pinned, checksum-verified rcodesign (from the apple-codesign
-# project) into <dest-dir>/rcodesign. Used by scripts/sign-legacy.sh on both
-# macOS (signing) and Linux (notarization) CI jobs.
+# project) into <dest-dir>/rcodesign. Used by scripts/sign-legacy.sh (macOS
+# signing) and scripts/notarize.sh (Linux notarization).
 #
 # Usage: install-rcodesign.sh <dest-dir>
 set -euo pipefail
