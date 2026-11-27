@@ -149,7 +149,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
- "signature",
+ "signature 2.2.0",
  "simple-file-manifest",
  "spake2",
  "spki",
@@ -205,7 +205,7 @@ dependencies = [
  "serde-xml-rs",
  "sha1",
  "sha2",
- "signature",
+ "signature 2.2.0",
  "thiserror 2.0.18",
  "url",
  "x509-certificate",
@@ -625,7 +625,7 @@ dependencies = [
  "pem",
  "reqwest",
  "ring",
- "signature",
+ "signature 2.2.0",
  "x509-certificate",
 ]
 
@@ -779,7 +779,7 @@ dependencies = [
  "der",
  "digest",
  "elliptic-curve",
- "signature",
+ "signature 2.2.0",
  "spki",
 ]
 
@@ -1632,7 +1632,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "signature",
+ "signature 3.0.0",
  "tempfile",
  "tokio",
  "url",
@@ -2410,7 +2410,7 @@ dependencies = [
  "pkcs8",
  "rand_core 0.6.4",
  "sha2",
- "signature",
+ "signature 2.2.0",
  "spki",
  "subtle",
  "zeroize",
@@ -2750,6 +2750,12 @@ dependencies = [
  "digest",
  "rand_core 0.6.4",
 ]
+
+[[package]]
+name = "signature"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
 
 [[package]]
 name = "simd-adler32"
@@ -3703,7 +3709,7 @@ dependencies = [
  "hex",
  "pem",
  "ring",
- "signature",
+ "signature 2.2.0",
  "spki",
  "thiserror 2.0.18",
  "zeroize",
